@@ -1,0 +1,18 @@
+# Rerun on the ai variant after ADR-012 (visible pointers in the page text). The same 6 tasks, 1 repetition, Sonnet.
+# The first run (plans/dry-ai.yaml, hidden shortcuts) found no shortcut use. Pair this one with it and with plans/model-sonnet.yaml (legacy).
+plan_id: dry-ai-visible
+domain: wanderingcodersv.dev
+scheme: https
+host_mode: per_run
+variants: [ai]
+agent_names: [claude]
+tasks: [t01, t02, t03, t04, t05, t06]
+reps: 1
+order_seed: 20261102
+quiet_gap_seconds: 35          # must be at least 32: the parser tail is 30 s and the start pad is 2 s
+budget: {max_requests: 40, max_seconds: 600}
+pull_cmd: "gcloud compute scp instance-20261102-203604:/srv/geobench/runs/requests.jsonl runs/requests.jsonl --zone=us-central1-c --quiet"   # no shell: split on spaces
+agents:
+  claude:
+    kind: claude
+    model: claude-sonnet-5-5

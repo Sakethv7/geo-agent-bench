@@ -1,0 +1,101 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Experiment A: one pilot run</title>
+<style>
+  :root {
+    --bg: #ffffff; --text: #111827; --line: #4b5563;
+    --grey-fill: #e5e7eb; --grey-stroke: #6b7280;
+    --blue-fill: #cfe3ff; --blue-stroke: #1d4ed8;
+    --red-fill: #fecaca; --red-stroke: #b91c1c;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #111827; --text: #f3f4f6; --line: #9ca3af;
+      --grey-fill: #374151; --grey-stroke: #9ca3af;
+      --blue-fill: #1e3a8a; --blue-stroke: #93c5fd;
+      --red-fill: #7f1d1d; --red-stroke: #fca5a5;
+    }
+  }
+  body { margin: 0; padding: 12px 16px; background: var(--bg); color: var(--text);
+         font: 14px/1.4 system-ui, sans-serif; }
+  h1 { font-size: 16px; margin: 0 0 4px; }
+  p { margin: 0 0 8px; }
+  svg { width: 100%; max-width: 900px; height: auto; display: block; }
+  .grey { fill: var(--grey-fill); stroke: var(--grey-stroke); stroke-width: 1.5; }
+  .blue { fill: var(--blue-fill); stroke: var(--blue-stroke); stroke-width: 1.5; }
+  .red  { fill: var(--red-fill);  stroke: var(--red-stroke);  stroke-width: 1.5; }
+  text { fill: var(--text); font: 12px system-ui, sans-serif; text-anchor: middle; dominant-baseline: central; }
+  .lbl { font-size: 11px; }
+  .edge { stroke: var(--line); stroke-width: 1.5; fill: none; marker-end: url(#arr); }
+  #arr path { fill: var(--line); }
+  .key { display: flex; gap: 16px; flex-wrap: wrap; margin-top: 6px; font-size: 12px; }
+  .key span::before { content: ""; display: inline-block; width: 12px; height: 12px; margin-right: 6px;
+                      vertical-align: -2px; border: 1.5px solid; }
+  .k-grey::before { background: var(--grey-fill); border-color: var(--grey-stroke); }
+  .k-blue::before { background: var(--blue-fill); border-color: var(--blue-stroke); }
+  .k-red::before  { background: var(--red-fill);  border-color: var(--red-stroke); }
+</style>
+</head>
+<body>
+<h1>Experiment A: one pilot run, from plan to results row</h1>
+<p>Read from the top. Diamonds are questions. Every failure path ends in a red box.</p>
+<svg viewBox="0 0 900 712" role="img" aria-label="Flowchart of one pilot run">
+  <defs>
+    <marker id="arr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto">
+      <path d="M0,0 L10,5 L0,10 z"/>
+    </marker>
+  </defs>
+
+  <!-- main column, cx=220 -->
+  <rect class="blue" x="100" y="18" width="240" height="36" rx="4"/><text x="220" y="36">Pick next run from the plan</text>
+  <rect class="blue" x="100" y="74" width="240" height="36" rx="4"/><text x="220" y="92">Stamp run: agent version, date, seed</text>
+  <rect class="blue" x="100" y="130" width="240" height="36" rx="4"/><text x="220" y="148">Send task and start URL to agent</text>
+  <rect class="grey" x="100" y="186" width="240" height="36" rx="4"/><text x="220" y="204">Agent requests a page</text>
+  <polygon class="blue" points="220,244 310,272 220,300 130,272"/><text x="220" y="272">Interceptor on?</text>
+  <rect class="blue" x="100" y="328" width="240" height="36" rx="4"/><text x="220" y="346">Test site serves page, logs request</text>
+  <polygon class="blue" points="220,390 310,418 220,446 130,418"/><text x="220" y="418">Over budget?</text>
+  <polygon class="grey" points="220,462 310,490 220,518 130,490"/><text x="220" y="490">Agent has answer?</text>
+  <rect class="grey" x="100" y="542" width="240" height="36" rx="4"/><text x="220" y="560">Agent returns answer</text>
+  <rect class="blue" x="100" y="598" width="240" height="36" rx="4"/><text x="220" y="616">Score answer against ground truth</text>
+  <rect class="blue" x="100" y="654" width="240" height="36" rx="4"/><text x="220" y="672">Match logs by time, write result row</text>
+
+  <!-- side column, cx=520 -->
+  <rect class="blue" x="410" y="254" width="220" height="36" rx="4"/><text x="520" y="272">Identify, classify, decide</text>
+  <polygon class="blue" points="520,318 610,346 520,374 430,346"/><text x="520" y="346">Blocked?</text>
+  <rect class="red" x="410" y="400" width="220" height="36" rx="4"/><text x="520" y="418">Stop run, mark timeout</text>
+  <rect class="red" x="410" y="654" width="220" height="36" rx="4"/><text x="520" y="672">Mark run invalid, list it</text>
+
+  <!-- far column, cx=775 -->
+  <rect class="red" x="685" y="318" width="180" height="56" rx="4"/>
+  <text x="775" y="338">Agent gets 403</text><text x="775" y="356">Verified agent = false block</text>
+
+  <!-- edges main -->
+  <path class="edge" d="M220,54 V74"/>
+  <path class="edge" d="M220,110 V130"/>
+  <path class="edge" d="M220,166 V186"/>
+  <path class="edge" d="M220,222 V244"/>
+  <path class="edge" d="M220,300 V328"/><text class="lbl" x="236" y="314">no</text>
+  <path class="edge" d="M310,272 H410"/><text class="lbl" x="360" y="264">yes</text>
+  <path class="edge" d="M520,290 V318"/>
+  <path class="edge" d="M430,346 H340"/><text class="lbl" x="385" y="338">no</text>
+  <path class="edge" d="M610,346 H685"/><text class="lbl" x="648" y="338">yes</text>
+  <path class="edge" d="M220,364 V390"/>
+  <path class="edge" d="M310,418 H410"/><text class="lbl" x="360" y="410">yes</text>
+  <path class="edge" d="M220,446 V462"/><text class="lbl" x="236" y="454">no</text>
+  <path class="edge" d="M220,518 V542"/><text class="lbl" x="236" y="530">yes</text>
+  <path class="edge" d="M130,490 H50 V204 H100"/><text class="lbl" x="90" y="482">no</text>
+  <path class="edge" d="M220,578 V598"/>
+  <path class="edge" d="M220,634 V654"/>
+  <path class="edge" d="M340,672 H410"/><text class="lbl" x="375" y="664">late request</text>
+</svg>
+<div class="key" aria-label="Key">
+  <span class="k-grey">Exists today (the agent, outside our control)</span>
+  <span class="k-blue">New: we build it</span>
+  <span class="k-red">Failure path</span>
+</div>
+<p style="margin-top:10px">"Over budget" means more than 40 requests or 10 minutes. The "no" arrow on the over-budget question continues to "Agent has answer?". A run with no log line at all is kept and flagged "no_fetch". It is not dropped.</p>
+</body>
+</html>

@@ -1,0 +1,18 @@
+# Dry run: 2 Claude runs on per-run hosts. It checks the whole path before the 120-run pilot:
+# pre-check, token in the URL, token in the log, ANSWER format, scoring. Cost: about 2 Claude runs.
+plan_id: dry-1
+domain: wanderingcodersv.dev
+scheme: https
+host_mode: per_run
+variants: [legacy]
+agent_names: [claude]
+tasks: [t01, t02]
+reps: 1
+order_seed: 20261102
+quiet_gap_seconds: 35          # must be at least 32: the parser tail is 30 s and the start pad is 2 s
+budget: {max_requests: 40, max_seconds: 600}
+pull_cmd: "gcloud compute scp instance-20261102-203604:/srv/geobench/runs/requests.jsonl runs/requests.jsonl --zone=us-central1-c --quiet"   # no shell: split on spaces
+agents:
+  claude:
+    kind: claude
+    model: claude-opus-5-5

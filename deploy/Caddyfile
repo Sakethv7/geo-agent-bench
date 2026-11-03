@@ -1,0 +1,27 @@
+# HTTPS in front of the test site. Caddy sets X-Forwarded-For to the real client IP.
+# The test site trusts that header only from the local peer.
+# This is the file that runs on the VM (2026-11-03, with the ai variant, ADR-011).
+# Needs Caddy with the caddy-dns/cloudflare module (`caddy add-package github.com/caddy-dns/cloudflare`)
+# and CF_API_TOKEN in /etc/caddy/cf.env (mode 0600), loaded by a systemd drop-in with EnvironmentFile=.
+legacy.wanderingcodersv.dev {
+	reverse_proxy 127.0.0.1:8000
+}
+
+# Run hosts: <token>.legacy.wanderingcodersv.dev. One wildcard certificate by the DNS-01 test (ADR-009).
+*.legacy.wanderingcodersv.dev {
+	tls {
+		dns cloudflare {env.CF_API_TOKEN}
+	}
+	reverse_proxy 127.0.0.1:8000
+}
+
+ai.wanderingcodersv.dev {
+	reverse_proxy 127.0.0.1:8000
+}
+
+*.ai.wanderingcodersv.dev {
+	tls {
+		dns cloudflare {env.CF_API_TOKEN}
+	}
+	reverse_proxy 127.0.0.1:8000
+}

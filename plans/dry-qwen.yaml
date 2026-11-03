@@ -1,0 +1,23 @@
+# Dry run for the local Qwen arm: 2 runs on per-run hosts. Needs the LM Studio server on port 1234 with the model loaded.
+# No API key needed. Cost: none, but the model uses about 7 GB of memory while loaded.
+plan_id: dry-qwen
+domain: wanderingcodersv.dev
+scheme: https
+host_mode: per_run
+variants: [legacy]
+agent_names: [qwen-lmstudio]
+tasks: [t01, t02]
+reps: 1
+order_seed: 20261102
+quiet_gap_seconds: 35          # must be at least 32: the parser tail is 30 s and the start pad is 2 s
+budget: {max_requests: 40, max_seconds: 600}
+pull_cmd: "gcloud compute scp instance-20261102-203604:/srv/geobench/runs/requests.jsonl runs/requests.jsonl --zone=us-central1-c --quiet"   # no shell: split on spaces
+agents:
+  qwen-lmstudio:
+    kind: openai_compat
+    base_url: http://localhost:1234/v1
+    model: mlx-local/qwen3-8b        # id from /v1/models, checked 2026-11-02
+    model_file: mlx-local/Qwen3-8B-6bit (MLX, 6-bit, group size 64; model-0000{1,2}-of-00002.safetensors; context 16384 set with lms load -c 16384)
+    runtime: lmstudio-mlx
+    temperature: 0.7
+    obey_robots: false

@@ -1,0 +1,13 @@
+[Unit]
+Description=geobench test site
+After=network.target
+
+[Service]
+User=geobench
+WorkingDirectory=/srv/geobench
+# Replace YOUR_PUBLIC_IP with the IP your laptop shows to the internet. Only that IP may call /__health and /__time.
+ExecStart=/srv/geobench/.venv/bin/geobench serve --log /srv/geobench/runs/requests.jsonl --host 127.0.0.1 --port 8000 --domain wanderingcodersv.dev --mode record --identity /srv/geobench/runs/identity_reference.json --admin-ip YOUR_PUBLIC_IP
+Restart=on-failure
+
+[Install]
+WantedBy=multi-user.target

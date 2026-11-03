@@ -1,0 +1,95 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ADR-009: one run, one host name</title>
+<style>
+  :root {
+    --bg: #ffffff; --text: #111827; --line: #4b5563;
+    --grey-fill: #e5e7eb; --grey-stroke: #6b7280;
+    --blue-fill: #cfe3ff; --blue-stroke: #1d4ed8;
+    --red-fill: #fecaca; --red-stroke: #b91c1c;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #111827; --text: #f3f4f6; --line: #9ca3af;
+      --grey-fill: #374151; --grey-stroke: #9ca3af;
+      --blue-fill: #1e3a8a; --blue-stroke: #93c5fd;
+      --red-fill: #7f1d1d; --red-stroke: #fca5a5;
+    }
+  }
+  body { margin: 0; padding: 12px 16px; background: var(--bg); color: var(--text);
+         font: 14px/1.4 system-ui, sans-serif; }
+  h1 { font-size: 16px; margin: 0 0 4px; }
+  p { margin: 0 0 8px; }
+  svg { width: 100%; max-width: 760px; height: auto; display: block; }
+  .grey { fill: var(--grey-fill); stroke: var(--grey-stroke); stroke-width: 1.5; }
+  .blue { fill: var(--blue-fill); stroke: var(--blue-stroke); stroke-width: 1.5; }
+  .red  { fill: var(--red-fill);  stroke: var(--red-stroke);  stroke-width: 1.5; }
+  text { fill: var(--text); font: 12px system-ui, sans-serif; text-anchor: middle; dominant-baseline: central; }
+  .lbl { font-size: 11px; }
+  .edge { stroke: var(--line); stroke-width: 1.5; fill: none; marker-end: url(#arr); }
+  #arr path { fill: var(--line); }
+  .key { display: flex; gap: 16px; flex-wrap: wrap; margin-top: 6px; font-size: 12px; }
+  .key span::before { content: ""; display: inline-block; width: 12px; height: 12px; margin-right: 6px;
+                      vertical-align: -2px; border: 1.5px solid; }
+  .k-grey::before { background: var(--grey-fill); border-color: var(--grey-stroke); }
+  .k-blue::before { background: var(--blue-fill); border-color: var(--blue-stroke); }
+  .k-red::before  { background: var(--red-fill);  border-color: var(--red-stroke); }
+</style>
+</head>
+<body>
+<h1>ADR-009: one run, one host name</h1>
+<p>Read from the top. Diamonds are questions. Every failure path ends in a red box. A new host name is a new URL, so the vendor cache cannot answer.</p>
+<svg viewBox="0 0 700 700" role="img" aria-label="Flowchart of one run with its own host name">
+  <defs>
+    <marker id="arr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto">
+      <path d="M0,0 L10,5 L0,10 z"/>
+    </marker>
+  </defs>
+
+  <!-- main column, cx=220 -->
+  <rect class="grey" x="100" y="18" width="240" height="36" rx="4"/><text x="220" y="36">Runner takes the next planned run</text>
+  <rect class="blue" x="100" y="74" width="240" height="36" rx="4"/><text x="220" y="92">Make token, build the run host</text>
+  <polygon class="blue" points="220,130 310,158 220,186 130,158"/><text x="220" y="158">Run host answers?</text>
+  <rect class="blue" x="100" y="206" width="240" height="36" rx="4"/><text x="220" y="224">Start agent with the run host URL</text>
+  <rect class="blue" x="100" y="262" width="240" height="36" rx="4"/><text x="220" y="280">DNS and certificate serve the host</text>
+  <rect class="blue" x="100" y="318" width="240" height="36" rx="4"/><text x="220" y="336">Server reads token, logs run_token</text>
+  <rect class="grey" x="100" y="374" width="240" height="36" rx="4"/><text x="220" y="392">Server returns page, agent works</text>
+  <polygon class="grey" points="220,430 310,458 220,486 130,458"/><text x="220" y="458">Agent has answer?</text>
+  <rect class="blue" x="100" y="506" width="240" height="36" rx="4"/><text x="220" y="524">Parser matches requests by token</text>
+  <polygon class="blue" points="220,562 310,590 220,618 130,590"/><text x="220" y="590">Token in a run?</text>
+  <rect class="grey" x="100" y="638" width="240" height="36" rx="4"/><text x="220" y="656">Metrics, write result row</text>
+
+  <!-- side column, cx=520 -->
+  <rect class="red" x="410" y="130" width="220" height="56" rx="4"/>
+  <text x="520" y="150">Stop the batch, write nothing</text><text x="520" y="168">Runner exits with code 3</text>
+  <rect class="red" x="410" y="430" width="220" height="56" rx="4"/>
+  <text x="520" y="450">Mark run failed or refused</text><text x="520" y="468">Do not retry</text>
+  <rect class="red" x="410" y="572" width="220" height="36" rx="4"/><text x="520" y="590">Keep request unassigned, report it</text>
+
+  <!-- edges -->
+  <path class="edge" d="M220,54 V74"/>
+  <path class="edge" d="M220,110 V130"/>
+  <path class="edge" d="M220,186 V206"/><text class="lbl" x="236" y="196">yes</text>
+  <path class="edge" d="M310,158 H410"/><text class="lbl" x="360" y="150">no</text>
+  <path class="edge" d="M220,242 V262"/>
+  <path class="edge" d="M220,298 V318"/>
+  <path class="edge" d="M220,354 V374"/>
+  <path class="edge" d="M220,410 V430"/>
+  <path class="edge" d="M220,486 V506"/><text class="lbl" x="236" y="496">yes</text>
+  <path class="edge" d="M310,458 H410"/><text class="lbl" x="360" y="450">no</text>
+  <path class="edge" d="M520,486 V524 H340"/>
+  <path class="edge" d="M220,542 V562"/>
+  <path class="edge" d="M220,618 V638"/><text class="lbl" x="236" y="628">yes</text>
+  <path class="edge" d="M310,590 H410"/><text class="lbl" x="360" y="582">no</text>
+</svg>
+<div class="key" aria-label="Key">
+  <span class="k-grey">Exists today</span>
+  <span class="k-blue">New or changed by this ADR</span>
+  <span class="k-red">Failure path</span>
+</div>
+<p style="margin-top:10px">The health check catches a missing wildcard DNS record or a failed certificate before the agent starts. A failed or refused run is kept in the data, and its requests still match by token. A request whose token is in no run record is a stray request. Today, matching uses only a time window.</p>
+</body>
+</html>

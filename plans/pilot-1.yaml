@@ -1,0 +1,25 @@
+# Pilot plan. The runner refuses to start while any value is TODO.
+plan_id: pilot-1
+domain: wanderingcodersv.dev
+scheme: https
+host_mode: per_run           # each run gets its own host name: <token>.<variant>.<domain> (ADR-009)
+variants: [legacy, ai]       # ADR-011: the ai variant is built and live since 2026-11-03
+agent_names: [claude]        # ADR-010: cloud agents only. The qwen-lmstudio block below is a recorded finding. It is not used.
+tasks: [t01, t02, t03, t04, t05, t06]
+reps: 5
+order_seed: 20261102
+quiet_gap_seconds: 35          # must be at least 32: the parser tail is 30 s and the start pad is 2 s
+budget: {max_requests: 40, max_seconds: 600}
+pull_cmd: "gcloud compute scp instance-20261102-203604:/srv/geobench/runs/requests.jsonl runs/requests.jsonl --zone=us-central1-c --quiet"   # no shell: split on spaces
+agents:
+  claude:
+    kind: claude
+    model: claude-sonnet-5-5   # chosen 2026-11-03 after the 6-task check against Opus (ADR-010)
+  qwen-lmstudio:
+    kind: openai_compat
+    base_url: http://localhost:1234/v1
+    model: mlx-local/qwen3-8b        # id from /v1/models, checked 2026-11-02
+    model_file: mlx-local/Qwen3-8B-6bit (MLX, 6-bit, group size 64; model-0000{1,2}-of-00002.safetensors; context 16384 set with lms load -c 16384)
+    runtime: lmstudio-mlx
+    temperature: 0.7
+    obey_robots: false
