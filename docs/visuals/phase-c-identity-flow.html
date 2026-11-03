@@ -1,0 +1,97 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Phase C identity flow</title>
+<style>
+  :root {
+    --bg: #ffffff; --text: #111827; --line: #4b5563;
+    --grey-fill: #e5e7eb; --grey-stroke: #6b7280;
+    --blue-fill: #cfe3ff; --blue-stroke: #1d4ed8;
+    --red-fill: #fecaca; --red-stroke: #b91c1c;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #111827; --text: #f3f4f6; --line: #9ca3af;
+      --grey-fill: #374151; --grey-stroke: #9ca3af;
+      --blue-fill: #1e3a8a; --blue-stroke: #93c5fd;
+      --red-fill: #7f1d1d; --red-stroke: #fca5a5;
+    }
+  }
+  :root[data-theme="dark"] {
+    --bg: #111827; --text: #f3f4f6; --line: #9ca3af;
+    --grey-fill: #374151; --grey-stroke: #9ca3af;
+    --blue-fill: #1e3a8a; --blue-stroke: #93c5fd;
+    --red-fill: #7f1d1d; --red-stroke: #fca5a5;
+  }
+  body { margin: 0; padding: 12px 16px; background: var(--bg); color: var(--text);
+         font: 14px/1.4 system-ui, sans-serif; }
+  h1 { font-size: 16px; margin: 0 0 4px; }
+  p { margin: 0 0 8px; max-width: 820px; }
+  svg { width: 100%; max-width: 760px; height: auto; display: block; }
+  .grey { fill: var(--grey-fill); stroke: var(--grey-stroke); stroke-width: 1.5; }
+  .blue { fill: var(--blue-fill); stroke: var(--blue-stroke); stroke-width: 1.5; }
+  .red  { fill: var(--red-fill);  stroke: var(--red-stroke);  stroke-width: 1.5; }
+  text { fill: var(--text); font: 12px system-ui, sans-serif; text-anchor: middle; dominant-baseline: central; }
+  .lbl { font-size: 11px; text-anchor: start; }
+  .edge { stroke: var(--line); stroke-width: 1.5; fill: none; marker-end: url(#arr); }
+  #arr path { fill: var(--line); }
+  .key { display: flex; gap: 16px; flex-wrap: wrap; margin-top: 6px; font-size: 12px; }
+  .key span::before { content: ""; display: inline-block; width: 12px; height: 12px; margin-right: 6px;
+                      vertical-align: -2px; border: 1.5px solid; }
+  .k-grey::before { background: var(--grey-fill); border-color: var(--grey-stroke); }
+  .k-blue::before { background: var(--blue-fill); border-color: var(--blue-stroke); }
+  .k-red::before  { background: var(--red-fill);  border-color: var(--red-stroke); }
+</style>
+</head>
+<body>
+<h1>Phase C: one request through the signature check and the sign-in (ADR-021 to ADR-023)</h1>
+<p>Read from the top. Diamonds are questions. Each failure path ends in a red box. Two separate checks run: who is the client, and what may it read.</p>
+<div class="key"><span class="k-grey">exists today</span><span class="k-blue">new or changed</span><span class="k-red">failure path</span></div>
+<svg viewBox="0 0 840 700" role="img" aria-label="Phase C identity flow">
+  <defs>
+    <marker id="arr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto">
+      <path d="M0,0 L10,5 L0,10 z"/>
+    </marker>
+  </defs>
+  <rect class="grey" x="240" y="20" width="240" height="36" rx="4"/><text x="360" y="38">Request reaches the site</text>
+  <polygon class="blue" points="360,76 455,104 360,132 265,104"/><text x="360" y="104">Signature headers?</text>
+  <rect class="blue" x="560" y="86" width="240" height="36" rx="4"/><text x="680" y="104">Record verdict absent</text>
+  <rect class="blue" x="240" y="152" width="240" height="36" rx="4"/><text x="360" y="170">Fetch the key directory</text>
+  <polygon class="blue" points="360,208 455,236 360,264 265,236"/><text x="360" y="228">Directory read,</text><text x="360" y="244">key found?</text>
+  <polygon class="blue" points="360,284 455,312 360,340 265,312"/><text x="360" y="304">Signature valid</text><text x="360" y="320">and in time?</text>
+  <rect class="red" x="20" y="270" width="180" height="60" rx="4"/><text x="110" y="284">Record unreachable,</text><text x="110" y="300">unknown key, invalid</text><text x="110" y="316">or expired. Serve anyway.</text>
+  <polygon class="blue" points="360,396 455,424 360,452 265,424"/><text x="360" y="424">Protected orders page?</text>
+  <rect class="grey" x="560" y="406" width="240" height="36" rx="4"/><text x="680" y="424">Serve the public page</text>
+  <polygon class="blue" points="360,472 455,500 360,528 265,500"/><text x="360" y="492">Token with</text><text x="360" y="508">orders scope?</text>
+  <rect class="red" x="20" y="482" width="180" height="44" rx="4"/><text x="110" y="496">401 or 403, with a link</text><text x="110" y="512">to the sign-in rules</text>
+  <rect class="blue" x="20" y="560" width="180" height="44" rx="4"/><text x="110" y="574">Harness runs sign-in:</text><text x="110" y="590">PKCE, consent, token</text>
+  <rect class="red" x="20" y="640" width="180" height="44" rx="4"/><text x="110" y="654">User says no: access_denied,</text><text x="110" y="670">no token</text>
+  <rect class="blue" x="240" y="560" width="240" height="36" rx="4"/><text x="360" y="578">Serve the saved orders</text>
+  <rect class="blue" x="240" y="640" width="240" height="44" rx="4"/><text x="360" y="654">Write log line and</text><text x="360" y="670">identity table row</text>
+  <path class="edge" d="M360,56 V76"/>
+  <path class="edge" d="M455,104 H560"/><text class="lbl" x="490" y="94">no</text>
+  <path class="edge" d="M360,132 V152"/><text class="lbl" x="366" y="144">yes</text>
+  <path class="edge" d="M360,188 V208"/>
+  <path class="edge" d="M360,264 V284"/><text class="lbl" x="366" y="276">yes</text>
+  <path class="edge" d="M265,236 H110 V270"/><text class="lbl" x="200" y="226">no</text>
+  <path class="edge" d="M265,312 H200"/><text class="lbl" x="226" y="302">no</text>
+  <path class="edge" d="M360,340 V396"/><text class="lbl" x="366" y="368">yes</text>
+  <path class="edge" d="M110,330 V370 H356"/>
+  <path class="edge" d="M680,122 V370 H364"/>
+  <path class="edge" d="M360,452 V472"/><text class="lbl" x="366" y="464">yes</text>
+  <path class="edge" d="M455,424 H560"/><text class="lbl" x="490" y="414">no</text>
+  <path class="edge" d="M265,500 H200"/><text class="lbl" x="226" y="490">no</text>
+  <path class="edge" d="M360,528 V560"/><text class="lbl" x="366" y="546">yes</text>
+  <path class="edge" d="M110,526 V560"/>
+  <path class="edge" d="M200,582 H240"/><text class="lbl" x="204" y="572">token</text>
+  <path class="edge" d="M110,604 V640"/><text class="lbl" x="116" y="628">denied</text>
+  <path class="edge" d="M360,596 V640"/>
+  <path class="edge" d="M200,662 H240"/>
+  <path class="edge" d="M680,442 V662 H484"/>
+
+</svg>
+<p>The signature check never changes the status code. It only writes a verdict, so a spoofer can still get a public page. The token check is separate. It decides who may read the orders. A spoofed agent that holds a valid token still gets the orders page, because identity and permission are two different checks. The sign-in steps run in our harness. The model never holds a key or a token. If the user says no, no token exists and the model only sees a 401.</p>
+</body>
+</html>

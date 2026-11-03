@@ -1,0 +1,29 @@
+# Phase A robustness follow-up. This is a separate experiment, not a rewrite
+# or replacement of runs/portfolio-phase-a-runs.jsonl.
+plan_id: phase-a-qwen-robust
+domain: wanderingcodersv.dev
+scheme: https
+host_mode: per_run
+variants: [legacy, ai]
+agent_names: [qwen-robust]
+tasks: [t01, t02, t03, t04, t05, t06]
+reps: 1
+order_seed: 20261103
+quiet_gap_seconds: 35
+budget: {max_requests: 8, max_seconds: 600}
+pull_cmd: "gcloud compute scp instance-20261102-203604:/srv/geobench/runs/requests.jsonl runs/requests.jsonl --zone=us-central1-c --quiet"
+agents:
+  qwen-robust:
+    kind: openai_compat
+    base_url: http://localhost:8080/v1
+    model: qwen3-8b-q4_k_m
+    model_file: Qwen3-8B-Q4_K_M.gguf (Qwen/Qwen3-8B-GGUF, sha256 d98cdcbd03e17ce47681435b5150e34c1417f50b5c0019dd560e4882c5745785)
+    runtime: llama.cpp
+    server_args: "-m ~/models/Qwen3-8B-Q4_K_M.gguf --alias qwen3-8b-q4_k_m -c 32768 --cache-type-k q8_0 --cache-type-v q8_0 --jinja --port 8080"
+    temperature: 0.7
+    obey_robots: false
+    navigation_policy: structured-v1
+    fetch_limit: 8000
+    link_limit: 40
+    tool_history_char_budget: 48000
+    early_answer_retries: 1

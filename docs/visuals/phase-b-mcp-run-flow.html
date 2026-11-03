@@ -1,0 +1,94 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Phase B run flow</title>
+<style>
+  :root {
+    --bg: #ffffff; --text: #111827; --line: #4b5563;
+    --grey-fill: #e5e7eb; --grey-stroke: #6b7280;
+    --blue-fill: #cfe3ff; --blue-stroke: #1d4ed8;
+    --red-fill: #fecaca; --red-stroke: #b91c1c;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #111827; --text: #f3f4f6; --line: #9ca3af;
+      --grey-fill: #374151; --grey-stroke: #9ca3af;
+      --blue-fill: #1e3a8a; --blue-stroke: #93c5fd;
+      --red-fill: #7f1d1d; --red-stroke: #fca5a5;
+    }
+  }
+  :root[data-theme="dark"] {
+    --bg: #111827; --text: #f3f4f6; --line: #9ca3af;
+    --grey-fill: #374151; --grey-stroke: #9ca3af;
+    --blue-fill: #1e3a8a; --blue-stroke: #93c5fd;
+    --red-fill: #7f1d1d; --red-stroke: #fca5a5;
+  }
+  body { margin: 0; padding: 12px 16px; background: var(--bg); color: var(--text);
+         font: 14px/1.4 system-ui, sans-serif; }
+  h1 { font-size: 16px; margin: 0 0 4px; }
+  p { margin: 0 0 8px; max-width: 820px; }
+  svg { width: 100%; max-width: 760px; height: auto; display: block; }
+  .grey { fill: var(--grey-fill); stroke: var(--grey-stroke); stroke-width: 1.5; }
+  .blue { fill: var(--blue-fill); stroke: var(--blue-stroke); stroke-width: 1.5; }
+  .red  { fill: var(--red-fill);  stroke: var(--red-stroke);  stroke-width: 1.5; }
+  text { fill: var(--text); font: 12px system-ui, sans-serif; text-anchor: middle; dominant-baseline: central; }
+  .lbl { font-size: 11px; text-anchor: start; }
+  .edge { stroke: var(--line); stroke-width: 1.5; fill: none; marker-end: url(#arr); }
+  #arr path { fill: var(--line); }
+  .key { display: flex; gap: 16px; flex-wrap: wrap; margin-top: 6px; font-size: 12px; }
+  .key span::before { content: ""; display: inline-block; width: 12px; height: 12px; margin-right: 6px;
+                      vertical-align: -2px; border: 1.5px solid; }
+  .k-grey::before { background: var(--grey-fill); border-color: var(--grey-stroke); }
+  .k-blue::before { background: var(--blue-fill); border-color: var(--blue-stroke); }
+  .k-red::before  { background: var(--red-fill);  border-color: var(--red-stroke); }
+</style>
+</head>
+<body>
+<h1>Phase B: one MCP run, from token to result row (ADR-018 to ADR-020)</h1>
+<p>Read from the top. Diamonds are questions. Each failure path ends in a red box. The run loop around the agent is the same as in Phase A. The new steps are the MCP checks and the measures.</p>
+<div class="key"><span class="k-grey">exists today</span><span class="k-blue">new or changed</span><span class="k-red">failure path</span></div>
+<svg viewBox="0 0 840 740" role="img" aria-label="Phase B run flow">
+  <defs>
+    <marker id="arr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto">
+      <path d="M0,0 L10,5 L0,10 z"/>
+    </marker>
+  </defs>
+  <rect class="grey" x="240" y="14" width="240" height="44" rx="4"/><text x="360" y="28">Runner mints a token,</text><text x="360" y="44">builds the MCP URL</text>
+  <polygon class="blue" points="360,76 455,104 360,132 265,104"/><text x="360" y="104">Pre-check passes?</text>
+  <rect class="red" x="20" y="86" width="180" height="36" rx="4"/><text x="110" y="104">Stop the batch</text>
+  <rect class="blue" x="240" y="152" width="240" height="36" rx="4"/><text x="360" y="170">Agent calls a tool</text>
+  <polygon class="grey" points="360,208 455,236 360,264 265,236"/><text x="360" y="236">Native host?</text>
+  <rect class="red" x="20" y="218" width="180" height="36" rx="4"/><text x="110" y="236">421, no page served</text>
+  <polygon class="blue" points="360,284 455,312 360,340 265,312"/><text x="360" y="304">Poisoned surface,</text><text x="360" y="320">no run token?</text>
+  <rect class="red" x="20" y="294" width="180" height="36" rx="4"/><text x="110" y="312">404, poison never served</text>
+  <polygon class="blue" points="360,360 455,388 360,416 265,388"/><text x="360" y="388">Input fits the schema?</text>
+  <rect class="red" x="20" y="366" width="180" height="44" rx="4"/><text x="110" y="380">isError result,</text><text x="110" y="396">model may retry</text>
+  <rect class="blue" x="240" y="436" width="240" height="36" rx="4"/><text x="360" y="454">Read the fact from page data</text>
+  <rect class="blue" x="240" y="492" width="240" height="36" rx="4"/><text x="360" y="510">Log call: token, tool, sizes</text>
+  <polygon class="grey" points="360,548 455,576 360,604 265,576"/><text x="360" y="576">Agent has an answer?</text>
+  <rect class="red" x="20" y="558" width="180" height="36" rx="4"/><text x="110" y="576">Timeout, run is kept</text>
+  <rect class="blue" x="240" y="624" width="240" height="44" rx="4"/><text x="360" y="638">Score answer, bytes pulled,</text><text x="360" y="654">canary, log_access calls</text>
+  <rect class="grey" x="240" y="688" width="240" height="36" rx="4"/><text x="360" y="706">Write the result row</text>
+  <path class="edge" d="M360,58 V76"/>
+  <path class="edge" d="M360,132 V152"/><text class="lbl" x="366" y="144">yes</text>
+  <path class="edge" d="M265,104 H200"/><text class="lbl" x="226" y="94">no</text>
+  <path class="edge" d="M360,188 V208"/>
+  <path class="edge" d="M360,264 V284"/><text class="lbl" x="366" y="276">yes</text>
+  <path class="edge" d="M265,236 H200"/><text class="lbl" x="226" y="226">no</text>
+  <path class="edge" d="M360,340 V360"/><text class="lbl" x="366" y="352">no</text>
+  <path class="edge" d="M265,312 H200"/><text class="lbl" x="226" y="302">yes</text>
+  <path class="edge" d="M360,416 V436"/><text class="lbl" x="366" y="428">yes</text>
+  <path class="edge" d="M265,388 H200"/><text class="lbl" x="226" y="378">no</text>
+  <path class="edge" d="M360,472 V492"/>
+  <path class="edge" d="M360,528 V548"/>
+  <path class="edge" d="M360,604 V624"/><text class="lbl" x="366" y="616">yes</text>
+  <path class="edge" d="M265,576 H200"/><text class="lbl" x="206" y="606">no, budget spent</text>
+  <path class="edge" d="M455,576 H825 V170 H484"/><text class="lbl" x="470" y="566">no, budget left</text>
+  <path class="edge" d="M360,668 V688"/>
+
+</svg>
+<p>Claude calls the tools through the API connector, from Anthropic addresses. Qwen calls them through our own client. Both go through the same checks. A bad input is not an HTTP error. It comes back as an isError result, so the model can read it and try again within the budget. The poison guard runs before any tool list is built. A request for the poisoned surface without a run token never sees the poisoned description.</p>
+</body>
+</html>

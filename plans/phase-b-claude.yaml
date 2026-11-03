@@ -1,0 +1,19 @@
+# Phase B, Claude arm (ADR-018 to ADR-020): 3 surfaces x 6 tasks = 18 runs through the MCP connector. Needs ANTHROPIC_API_KEY.
+# Write results only to runs/phase-b-claude-runs.jsonl. Never pool with Phase A files.
+plan_id: phase-b-claude
+domain: wanderingcodersv.dev
+scheme: https
+host_mode: per_run
+variants: [native]
+surfaces: [minimal, broad, poisoned]
+agent_names: [claude-mcp]
+tasks: [t01, t02, t03, t04, t05, t06]
+reps: 1
+order_seed: 20261103
+quiet_gap_seconds: 35
+budget: {max_requests: 40, max_seconds: 600}
+pull_cmd: "gcloud compute scp instance-20261102-203604:/srv/geobench/runs/requests.jsonl runs/requests.jsonl --zone=us-central1-c --quiet"
+agents:
+  claude-mcp:
+    kind: claude_mcp
+    model: claude-sonnet-5-5
