@@ -11,7 +11,7 @@ from starlette.requests import Request
 from starlette.responses import JSONResponse, PlainTextResponse, Response
 from starlette.routing import Route
 
-from geobench.content import BUILDERS, Page, build_site
+from geobench.content import BUILDERS, Page, build_site, twin_path
 from geobench.interceptor import Decision, RequestInfo, decide
 
 LOCAL_PEERS = {"127.0.0.1", "::1"}
@@ -28,6 +28,17 @@ def client_ip(request: Request) -> str:
     if peer in LOCAL_PEERS and forwarded:
         return forwarded.split(",")[0].strip()
     return peer
+
+
+def negotiated_twin(site: dict[str, Page], variant: str, path: str, accept: str) -> Page | None:
+    """On ai, a page request whose Accept header names text/markdown gets the markdown twin (ADR-014).
+    Quality values are ignored."""
+    if variant != "ai" or "text/markdown" not in accept.lower():
+        return None
+    page = site.get(path)
+    if page is None or page.kind != "page" or not page.content_type.startswith("text/html"):
+        return None
+    return site.get(twin_path(path))
 
 
 def resolve_host(host: str, domain: str | None, default_variant: str | None) -> tuple[str, str | None] | None:
@@ -65,7 +76,7 @@ def make_app(
     reference = reference or {}
     log_path.parent.mkdir(parents=True, exist_ok=True)
 
-    def log(request: Request, variant: str, run_token: str | None, status: int, size: int, kind: str, decision: Decision) -> None:
+    def log(request: Request, variant: str, run_token: str | None, status: int, size: int, kind: str, decision: Decision, negotiated: bool) -> None:
         line = {
             "ts": now_iso(),
             "host": request.headers.get("host", "").split(":")[0],
@@ -81,6 +92,7 @@ def make_app(
             "accept": request.headers.get("accept"),
             "referer": request.headers.get("referer"),
             "kind": kind,
+            "negotiated": negotiated,
             "interceptor": {"mode": mode, "class": decision.klass, "decision": decision.action, "agent": decision.agent},
         }
         with log_path.open("a") as f:
@@ -104,6 +116,7 @@ def make_app(
         variant, run_token = resolved
         page: Page | None = sites[variant].get(path)
         kind = page.kind if page else "unknown"
+        twin = negotiated_twin(sites[variant], variant, path, request.headers.get("accept", ""))
         info = RequestInfo(host, path, request.method, request.headers.get("user-agent", ""), client_ip(request), dict(request.headers))
         decision = decide(info, mode, reference)
         if decision.action == "block":
@@ -112,9 +125,11 @@ def make_app(
             response = PlainTextResponse("Not found", status_code=404)
         elif request.method == "POST":
             response = PlainTextResponse("Thanks", status_code=200) if kind == "form" else PlainTextResponse("Method not allowed", status_code=405)
+        elif twin is not None:
+            response = Response(twin.body, media_type=twin.content_type, headers={"Vary": "Accept"})
         else:
-            response = Response(page.body, media_type=page.content_type)
-        log(request, variant, run_token, response.status_code, len(response.body), kind, decision)
+            response = Response(page.body, media_type=page.content_type, headers={"Vary": "Accept"} if variant == "ai" else None)
+        log(request, variant, run_token, response.status_code, len(response.body), kind, decision, twin is not None and response.status_code == 200)
         return response
 
     return Starlette(routes=[Route("/{path:path}", handle, methods=["GET", "HEAD", "POST"])])

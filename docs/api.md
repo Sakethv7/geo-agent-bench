@@ -743,9 +743,10 @@ def chrome(title: str, body_html: str, seed: int) -> str: ...
 - Returns a full HTML page of 90,000 to 110,000 bytes.
 - `body_html` starts between byte 35,000 and 45,000 and ends before byte 55,000.
 - The same `title`, `body_html` and `seed` always give the same bytes.
-- Every `href` is `#`, or a path of kind `page` in the same variant.
+- Every `href` is `#`, or one of the pages that the home page links to (`NAV_PATHS`: `/`, `/products`, `/warranty`, `/returns`, `/support`). So no minimum set gets shorter. (Amended in the build, 2026-11-03: a link to a deep page such as `/support/changelog` would let an agent skip a step.)
 - The chrome text holds no product name, temperature, price, email address, version or day count from `content.py`.
-- The last inline script ends with `//# sourceMappingURL=/static/app.js.map`.
+- The head script ends with `//# sourceMappingURL=/static/app.js.map`. (Amended in the build: at the end of the page, the line sat past the 60,000-character cut, so a raw tool could never see it.)
+- On `ai`, the visible pointers of ADR-012 go at the end of the content block, before `</main>`, for the same reason.
 
 `_html()` in `content.py` calls `chrome()` for kind `page` on both variants. Twins, `llms.txt`, `robots.txt` and the planted files do not get chrome.
 
@@ -823,7 +824,7 @@ qwen-llamacpp:
 
 ```
 geobench strangers --requests runs/requests.jsonl --ranges runs/vendor_ranges.json \
-                   --exclude-ip <ip> [--exclude-ip <ip> ...] --out runs/strangers/
+                   --exclude-ip <ip> [--exclude-ip <ip> ...] [--since <ISO time>] --out runs/strangers/
 ```
 
 `runs/vendor_ranges.json`:
@@ -838,7 +839,7 @@ geobench strangers --requests runs/requests.jsonl --ranges runs/vendor_ranges.js
 
 `spoofs.csv` columns: `ip, claimed, requests, first_seen, last_seen, top_paths`.
 
-`verdict` is `verified`, `spoofed` or `n/a`. Exit code 2 if the ranges file is missing or older than 30 days.
+`verdict` is `verified`, `spoofed`, `unverifiable` (the bot's vendor publishes no ranges for it, for example ClaudeBot) or `n/a`. Exit code 2 if the ranges file is missing or older than 30 days. `--since <ISO time>` drops older requests. Amended in the build: `strangers.csv` also has `secret_probes` (requests for any path that starts with `/.`), and `vendors` has one entry per bot group, because one vendor can publish different ranges for different bots.
 
 ## 8. Tests (promised before any code)
 
@@ -848,7 +849,7 @@ geobench strangers --requests runs/requests.jsonl --ranges runs/vendor_ranges.js
 4. Two builds give the same bytes.
 5. On `ai`, `Accept: text/markdown` returns the twin with `Vary: Accept`. On `legacy` it returns HTML.
 6. Each planted file answers 200 with its own canary. No canary appears in any `page`.
-7. Only manifest paths answer 200. A request for `/etc/passwd`, `/../.env` and `/srv/geobench/.env` answers 404.
+7. Only manifest paths answer 200. Requests for `/etc/passwd`, `/srv/geobench/.env`, `/pyproject.toml` and `/src/geobench/server.py` answer 404.
 8. The parser sets `exposed_hit` and `canary_leaked` on a synthetic run.
 9. `claude_tools` with a fake client calls `fetch_url` and stops at `max_requests`.
 10. A fake `llama-server` overflow response raises `AgentError("context_overflow")`.

@@ -2,10 +2,11 @@
 
     run(question, start_url, seed, budget) -> AgentResult
 
-Two kinds. "claude" uses Anthropic's server-side web fetch tool, so Anthropic's
+Three kinds. "claude" uses Anthropic's server-side web fetch tool, so Anthropic's
 servers do the fetching. "openai_compat" runs our own loop against any
 OpenAI-compatible chat endpoint (LM Studio, llama.cpp) with our own fetch_url
-tool, so the fetching is ours.
+tool, so the fetching is ours. "claude_tools" runs Claude with the same fetch_url
+as a client tool, so Claude and the local model read the same raw text (ADR-015).
 """
 import json
 import time
@@ -50,6 +51,9 @@ class AgentResult:
 
 class AgentError(Exception):
     """Any API or tool failure. The message goes in the run record."""
+
+
+CONTEXT_OVERFLOW = "context_overflow"
 
 
 class BudgetExceeded(AgentError):
@@ -107,6 +111,10 @@ def openai_compat_agent(cfg: dict, http: httpx.Client | None = None) -> Agent:
                 r.raise_for_status()
             except httpx.TimeoutException as e:
                 raise BudgetExceeded("max_seconds") from e
+            except httpx.HTTPStatusError as e:
+                if _is_context_overflow(e.response):
+                    raise AgentError(CONTEXT_OVERFLOW) from e
+                raise AgentError(f"{type(e).__name__}: {e}") from e
             except httpx.HTTPError as e:
                 raise AgentError(f"{type(e).__name__}: {e}") from e
             data = r.json()
@@ -128,6 +136,66 @@ def openai_compat_agent(cfg: dict, http: httpx.Client | None = None) -> Agent:
                     continue
                 fetched.append(url)
                 messages.append({"role": "tool", "tool_call_id": call["id"], "content": fetch_url(http, url, cfg.get("obey_robots", False))})
+
+    return run
+
+
+def _is_context_overflow(response: httpx.Response) -> bool:
+    """llama-server answers 400 with error type exceed_context_size_error when the prompt does not fit."""
+    if response.status_code != 400:
+        return False
+    text = response.text.lower()
+    return "exceed_context_size" in text or "context size" in text
+
+
+def _refusal(response) -> AgentError:
+    details = getattr(response, "stop_details", None)
+    category = details.get("category") if isinstance(details, dict) else getattr(details, "category", None)
+    return AgentError(f"refusal: {category}" if category else "refusal")
+
+
+def claude_tools_agent(cfg: dict, client: anthropic.Anthropic | None = None, http: httpx.Client | None = None) -> Agent:
+    client = client or anthropic.Anthropic(max_retries=3)
+    http = http or httpx.Client()
+    fn = FETCH_TOOL["function"]
+    tools = [{"name": fn["name"], "description": fn["description"], "input_schema": fn["parameters"]}]
+
+    def run(question: str, start_url: str, seed: int | None, budget: Budget) -> AgentResult:
+        messages = [{"role": "user", "content": PROMPT.format(start_url=start_url, question=question)}]
+        deadline = time.monotonic() + budget.max_seconds
+        fetched: list[str] = []
+        tokens = {"in": 0, "out": 0}
+        while True:
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                raise BudgetExceeded("max_seconds")
+            try:
+                response = client.with_options(timeout=remaining).messages.create(
+                    model=cfg["model"], max_tokens=16000, tools=tools, messages=messages
+                )
+            except anthropic.APITimeoutError as e:
+                raise BudgetExceeded("max_seconds") from e
+            except anthropic.APIError as e:
+                raise AgentError(f"{type(e).__name__}: {e}") from e
+            tokens["in"] += response.usage.input_tokens
+            tokens["out"] += response.usage.output_tokens
+            if response.stop_reason == "refusal":
+                raise _refusal(response)
+            calls = [b for b in response.content if b.type == "tool_use"]
+            if not calls:
+                return AgentResult("".join(b.text for b in response.content if b.type == "text"), tokens, 0, fetched)
+            messages.append({"role": "assistant", "content": response.content})
+            results = []
+            for call in calls:
+                if len(fetched) >= budget.max_requests:
+                    raise BudgetExceeded("max_requests")
+                url = call.input.get("url") if isinstance(call.input, dict) else None
+                if not isinstance(url, str):
+                    results.append({"type": "tool_result", "tool_use_id": call.id, "content": "Invalid arguments"})
+                    continue
+                fetched.append(url)
+                results.append({"type": "tool_result", "tool_use_id": call.id, "content": fetch_url(http, url, cfg.get("obey_robots", False))})
+            messages.append({"role": "user", "content": results})
 
     return run
 
@@ -161,15 +229,13 @@ def claude_agent(cfg: dict, client: anthropic.Anthropic | None = None) -> Agent:
                 messages.append({"role": "assistant", "content": response.content})
                 continue
             if response.stop_reason == "refusal":
-                details = getattr(response, "stop_details", None)
-                category = details.get("category") if isinstance(details, dict) else getattr(details, "category", None)
-                raise AgentError(f"refusal: {category}" if category else "refusal")
+                raise _refusal(response)
             return AgentResult("".join(b.text for b in response.content if b.type == "text"), tokens, 0, fetched)
 
     return run
 
 
-KINDS = {"claude": claude_agent, "openai_compat": openai_compat_agent}
+KINDS = {"claude": claude_agent, "claude_tools": claude_tools_agent, "openai_compat": openai_compat_agent}
 
 
 def make_agent(cfg: dict) -> Agent:
@@ -180,7 +246,10 @@ def describe(cfg: dict) -> dict:
     """Run-record fields that identify the agent."""
     if cfg["kind"] == "claude":
         return {"agent_version": cfg["model"], "model_file": None, "runtime": "anthropic-api", "harness": None}
-    return {
-        "agent_version": cfg["model"], "model_file": cfg["model_file"], "runtime": cfg["runtime"],
-        "harness": {"obey_robots": cfg.get("obey_robots", False), "user_agent": LOCAL_UA, "temperature": cfg.get("temperature", 0.7)},
-    }
+    if cfg["kind"] == "claude_tools":
+        return {"agent_version": cfg["model"], "model_file": None, "runtime": "anthropic-api",
+                "harness": {"obey_robots": cfg.get("obey_robots", False), "user_agent": LOCAL_UA, "temperature": None}}
+    harness = {"obey_robots": cfg.get("obey_robots", False), "user_agent": LOCAL_UA, "temperature": cfg.get("temperature", 0.7)}
+    if cfg.get("server_args"):
+        harness["server_args"] = cfg["server_args"]
+    return {"agent_version": cfg["model"], "model_file": cfg["model_file"], "runtime": cfg["runtime"], "harness": harness}

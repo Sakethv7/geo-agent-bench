@@ -107,6 +107,19 @@ def precheck(http: httpx.Client, base: str) -> None:
             raise RunnerStop(f"certificate for {host} expires in {days:.0f} days", 3)
 
 
+def local_precheck(http: httpx.Client, cfg: dict) -> None:
+    """Before a local run: the model server answers and serves the model in the plan (logic_flow Phase A, step 2)."""
+    url = f"{cfg['base_url'].rstrip('/')}/models"
+    try:
+        response = http.get(url)
+        response.raise_for_status()
+        ids = {m.get("id") for m in response.json().get("data", [])}
+    except (httpx.HTTPError, ValueError) as e:
+        raise RunnerStop(f"local model server failed the check: {describe_failure(e)}", 3) from e
+    if cfg["model"] not in ids:
+        raise RunnerStop(f"local model server does not serve {cfg['model']} (it serves {sorted(i for i in ids if i)})", 3)
+
+
 def expand_plan(plan: dict) -> list[dict]:
     cells = [
         {"agent": a, "variant": v, "task_id": t, "rep": r}
@@ -147,6 +160,8 @@ def run_one(cell: dict, plan: dict, task: Task, agent: Agent, http: httpx.Client
     base = run_base(plan, cell["variant"], token if per_run else None)
     if per_run:
         precheck(http, base)
+    if cfg["kind"] == "openai_compat":
+        local_precheck(http, cfg)
     offset, mode = server_clock(http, base)
     seed = cell["rep"] if cfg["kind"] == "openai_compat" else None
     skew = timedelta(milliseconds=offset)

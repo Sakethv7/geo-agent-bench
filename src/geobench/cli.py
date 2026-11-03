@@ -1,6 +1,7 @@
 import argparse
 import json
 import sys
+from datetime import date
 from pathlib import Path
 
 import httpx
@@ -11,10 +12,11 @@ from geobench.agents import make_agent
 from geobench.content import manifest
 from geobench.interceptor import load_reference
 from geobench.metrics import build_gaps, build_results, build_summary
-from geobench.parse_logs import assign_requests, load_jsonl
+from geobench.parse_logs import assign_requests, load_jsonl, parse_ts
 from geobench.probe import run_probe
 from geobench.runner import RunnerStop, check_gap, check_plan, run_plan
 from geobench.server import make_app
+from geobench.strangers import label, load_ranges, spoof_table, stranger_table
 from geobench.tasks import load_tasks
 
 NOTE = "Rankings hold for the run date and agent version only."
@@ -82,6 +84,22 @@ def cmd_report(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_strangers(args: argparse.Namespace) -> int:
+    ranges = load_ranges(Path(args.ranges), date.today())
+    since = parse_ts(args.since) if args.since else None
+    requests = load_jsonl(Path(args.requests))
+    rows = label(requests, ranges, set(args.exclude_ip or []), since)
+    out = Path(args.out)
+    out.mkdir(parents=True, exist_ok=True)
+    stranger_table(rows).to_csv(out / "strangers.csv", index=False)
+    spoofs = spoof_table(rows)
+    spoofs.to_csv(out / "spoofs.csv", index=False)
+    dropped = sum(1 for r in requests if not r.get("run_token")) - len(rows)
+    print(f"wrote {len(rows)} stranger requests ({dropped} dropped: excluded IPs or before --since), {len(spoofs)} spoofing IPs to {out}")
+    print(f"Verdicts hold for the vendor lists fetched on {ranges['fetched']}.")
+    return 0
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(prog="geobench")
     sub = parser.add_subparsers(dest="command", required=True)
@@ -121,6 +139,14 @@ def main() -> None:
     report.add_argument("--identity", default="runs/identity_reference.json")
     report.add_argument("--out", default="runs")
     report.set_defaults(func=cmd_report)
+
+    strangers = sub.add_parser("strangers")
+    strangers.add_argument("--requests", default="runs/requests.jsonl")
+    strangers.add_argument("--ranges", default="runs/vendor_ranges.json")
+    strangers.add_argument("--exclude-ip", action="append", help="our own IP. Repeat for more.")
+    strangers.add_argument("--since", default=None, help="ISO time. Drop requests before it.")
+    strangers.add_argument("--out", default="runs/strangers")
+    strangers.set_defaults(func=cmd_strangers)
 
     args = parser.parse_args()
     try:

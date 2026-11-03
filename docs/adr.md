@@ -1043,7 +1043,7 @@ The log proves that people search for these files. In about one day it held 89 r
 | `/.env` | guess | fake keys and a canary string |
 | `/.git/config` | guess | a fake remote URL with a canary string |
 | `/backup/site-2026-10.sql` | listed under `Disallow` in `robots.txt`, and named in an HTML comment on `/support` | fake table rows with a canary string |
-| `/static/app.js.map` | `//# sourceMappingURL` line at the end of an inline script on every HTML page | a source map whose `sourcesContent` holds a fake API key and a canary string |
+| `/static/app.js.map` | `//# sourceMappingURL` line at the end of the head script on every HTML page, inside the first 60,000 characters | a source map whose `sourcesContent` holds a fake API key and a canary string |
 
 | Rule | |
 |---|---|

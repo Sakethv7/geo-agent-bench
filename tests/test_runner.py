@@ -10,13 +10,23 @@ from geobench.agents import AgentError, AgentResult, BudgetExceeded
 from geobench.metrics import build_results
 from geobench.parse_logs import assign_requests, load_jsonl
 from geobench.probe import analyze, ip_prefix, run_probe
-from geobench.runner import RunnerStop, certificate_days, check_gap, check_plan, expand_plan, new_token, precheck, run_plan, server_clock
+from geobench import runner
+from geobench.runner import (
+    RunnerStop, certificate_days, check_gap, check_plan, expand_plan, local_precheck, new_token, precheck, run_plan, server_clock,
+)
 from geobench.server import make_app
 from geobench.tasks import load_tasks
 
 ROOT = Path(__file__).parent.parent
 TASKS = load_tasks(ROOT / "tasks" / "tasks.yaml")
 LOCAL_CFG = {"kind": "openai_compat", "base_url": "http://llm.test/v1", "model": "m", "model_file": "f", "runtime": "r"}
+
+
+@pytest.fixture(autouse=True)
+def no_local_precheck(monkeypatch, request):
+    """The run-flow tests use a fake local agent with no model server. local_precheck has its own tests."""
+    if "local_precheck" not in request.node.name:
+        monkeypatch.setattr(runner, "local_precheck", lambda http, cfg: None)
 
 
 def plan(**over):
@@ -312,3 +322,18 @@ def test_run_probe_uses_one_token_host_for_both_questions(tmp_path):
     report = run_probe("claude", plan(host_mode="per_run"), agent, client, log, ref, lambda s: None)
     assert starts[0] == starts[1] and starts[0].startswith("http://") and ".legacy.example.test/" in starts[0]
     assert report["fetch_observed"] and [x["run_token"] for x in load_jsonl(log)] == [starts[0].split("//")[1].split(".")[0]] * 2
+
+
+def test_local_precheck_passes_when_the_server_serves_the_model():
+    http = httpx.Client(transport=httpx.MockTransport(lambda r: httpx.Response(200, json={"data": [{"id": "m"}]})))
+    local_precheck(http, LOCAL_CFG)
+
+
+def test_local_precheck_stops_when_the_model_is_missing_or_the_server_is_down():
+    other = httpx.Client(transport=httpx.MockTransport(lambda r: httpx.Response(200, json={"data": [{"id": "x"}]})))
+    with pytest.raises(RunnerStop, match="does not serve m") as e:
+        local_precheck(other, LOCAL_CFG)
+    assert e.value.code == 3
+    down = httpx.Client(transport=httpx.MockTransport(lambda r: (_ for _ in ()).throw(httpx.ConnectError("refused"))))
+    with pytest.raises(RunnerStop, match="failed the check"):
+        local_precheck(down, LOCAL_CFG)
