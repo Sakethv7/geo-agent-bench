@@ -5,6 +5,7 @@ description = "Measure how AI agents and crawlers behave on sites we own"
 requires-python = ">=3.12"
 dependencies = [
     "anthropic>=2.3.0",
+    "cryptography>=50.0.2",
     "httpx",
     "numpy",
     "pandas",

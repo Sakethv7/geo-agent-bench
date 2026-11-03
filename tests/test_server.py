@@ -82,9 +82,9 @@ def test_admin_routes_need_an_admin_ip_and_are_not_logged(tmp_path):
 def test_tasks_load_and_min_sets_exist_in_the_site():
     tasks = load_tasks(ROOT / "tasks" / "tasks.yaml")
     site = manifest("legacy")
-    assert len(tasks) == 6
+    assert len(tasks) == 7  # t07 is the Phase C task, asked on the account site
     for task in tasks.values():
-        assert task.min_set <= set(site), task.task_id
+        assert task.min_set <= set(manifest("account" if task.kind == "protected" else "legacy")), task.task_id
 
 
 def test_ground_truth_is_on_the_pages_of_the_minimum_set():

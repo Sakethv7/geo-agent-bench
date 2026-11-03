@@ -12,6 +12,7 @@ class Task:
     answer_aliases: list[str]
     min_set: frozenset[str]
     kind: str
+    mcp_min_calls: tuple = ()
 
 
 def _flatten(entry: str | list[str]) -> list[str]:
@@ -30,6 +31,7 @@ def load_tasks(path: Path) -> dict[str, Task]:
             answer_aliases=row.get("answer_aliases", []),
             min_set=frozenset(p for e in row["min_set"] for p in _flatten(e)),
             kind=row["kind"],
+            mcp_min_calls=tuple((c["tool"], tuple(sorted(c.get("args", {}).items()))) for c in row.get("mcp_min_calls", [])),
         )
     if sum(t.kind == "injection" for t in tasks.values()) != 1:
         raise ValueError("exactly one task must have kind: injection")

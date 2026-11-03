@@ -1,5 +1,7 @@
 import argparse
 import json
+import os
+import secrets
 import sys
 from datetime import date
 from pathlib import Path
@@ -7,9 +9,13 @@ from pathlib import Path
 import httpx
 import uvicorn
 import yaml
+from cryptography.hazmat.primitives import serialization
+from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 
+from geobench.account_auth import config_dir
 from geobench.agents import make_agent
 from geobench.content import manifest
+from geobench.identity import identity_table
 from geobench.interceptor import load_reference
 from geobench.metrics import build_gaps, build_results, build_summary
 from geobench.parse_logs import assign_requests, load_jsonl, parse_ts
@@ -18,14 +24,17 @@ from geobench.runner import RunnerStop, check_gap, check_plan, run_plan
 from geobench.server import make_app
 from geobench.strangers import label, load_ranges, spoof_table, stranger_table
 from geobench.tasks import load_tasks
+from geobench.webbotauth import directory_document, thumbprint, public_jwk
 
 NOTE = "Rankings hold for the run date and agent version only."
 
 
 def cmd_serve(args: argparse.Namespace) -> int:
     admin_ips = frozenset(args.admin_ip or ["127.0.0.1", "::1"])
+    directory_path = Path(args.directory)
+    directory = json.loads(directory_path.read_text()) if directory_path.exists() else None
     app = make_app(Path(args.log), default_variant=args.default_variant, admin_ips=admin_ips,
-                   mode=args.mode, reference=load_reference(Path(args.identity)), domain=args.domain)
+                   mode=args.mode, reference=load_reference(Path(args.identity)), domain=args.domain, directory=directory)
     uvicorn.run(app, host=args.host, port=args.port, proxy_headers=False)
     return 0
 
@@ -100,6 +109,38 @@ def cmd_strangers(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_identity(args: argparse.Namespace) -> int:
+    ranges = load_ranges(Path(args.ranges), date.today())
+    table = identity_table(load_jsonl(Path(args.requests)), ranges, set(args.exclude_ip or []))
+    out = Path(args.out)
+    out.mkdir(parents=True, exist_ok=True)
+    table.to_csv(out / "identity.csv", index=False)
+    print(f"wrote {len(table)} identity rows to {out}")
+    print(f"IP verdicts hold for the vendor lists fetched on {ranges['fetched']}.")
+    return 0
+
+
+def cmd_botkey(args: argparse.Namespace) -> int:
+    """Make the signing key and the user secret once. The private key and the secret stay out of the repo."""
+    folder = config_dir()
+    folder.mkdir(parents=True, exist_ok=True)
+    key_path, secret_path = folder / "bot_key.pem", folder / "user_secret"
+    if key_path.exists():
+        print(f"error: {key_path} exists. Delete it yourself if you want a new key", file=sys.stderr)
+        return 2
+    key = Ed25519PrivateKey.generate()
+    key_path.write_bytes(key.private_bytes(serialization.Encoding.PEM, serialization.PrivateFormat.PKCS8, serialization.NoEncryption()))
+    os.chmod(key_path, 0o600)
+    if not secret_path.exists():
+        secret_path.write_text(secrets.token_urlsafe(32) + "\n")
+        os.chmod(secret_path, 0o600)
+    out = Path(args.directory)
+    out.parent.mkdir(parents=True, exist_ok=True)
+    out.write_text(json.dumps(directory_document([key])))
+    print(f"key id {thumbprint(public_jwk(key)['x'])}. Public directory written to {out}. Private files are in {folder}")
+    return 0
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(prog="geobench")
     sub = parser.add_subparsers(dest="command", required=True)
@@ -112,6 +153,7 @@ def main() -> None:
     serve.add_argument("--domain", default=None, help="parent domain. Turns on run hosts: <token>.<variant>.<domain>")
     serve.add_argument("--mode", choices=["record", "enforce"], default="record")
     serve.add_argument("--identity", default="runs/identity_reference.json")
+    serve.add_argument("--directory", default="runs/bot_directory.json", help="Web Bot Auth key directory served on the bot host")
     serve.add_argument("--admin-ip", action="append", help="IP allowed to call /__health and /__time. Repeat for more.")
     serve.set_defaults(func=cmd_serve)
 
@@ -147,6 +189,17 @@ def main() -> None:
     strangers.add_argument("--since", default=None, help="ISO time. Drop requests before it.")
     strangers.add_argument("--out", default="runs/strangers")
     strangers.set_defaults(func=cmd_strangers)
+
+    identity = sub.add_parser("identity")
+    identity.add_argument("--requests", default="runs/requests.jsonl")
+    identity.add_argument("--ranges", default="runs/vendor_ranges.json")
+    identity.add_argument("--exclude-ip", action="append", help="IP to drop, for example the VM's own address. Repeat for more.")
+    identity.add_argument("--out", default="runs/identity")
+    identity.set_defaults(func=cmd_identity)
+
+    botkey = sub.add_parser("botkey")
+    botkey.add_argument("--directory", default="runs/bot_directory.json")
+    botkey.set_defaults(func=cmd_botkey)
 
     args = parser.parse_args()
     try:

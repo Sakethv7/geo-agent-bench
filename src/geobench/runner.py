@@ -12,7 +12,8 @@ from pathlib import Path
 
 import httpx
 
-from geobench.agents import Agent, AgentError, Budget, BudgetExceeded, describe, make_agent
+from geobench.agents import LOCAL_KINDS, Agent, AgentError, Budget, BudgetExceeded, describe, make_agent
+from geobench.mcp import tools_for
 from geobench.metrics import final_answer
 from geobench.parse_logs import PAD, TAIL, load_jsonl, parse_ts
 from geobench.tasks import Task
@@ -21,6 +22,7 @@ MAX_CLOCK_OFFSET_MS = 2000
 TOKEN_CHARS = string.ascii_lowercase + string.digits
 TOKEN_LENGTH = 8
 CERT_MIN_DAYS = 14
+CONNECTOR_ERROR_LIMIT = 3
 
 
 class RunnerStop(Exception):
@@ -120,11 +122,17 @@ def local_precheck(http: httpx.Client, cfg: dict) -> None:
         raise RunnerStop(f"local model server does not serve {cfg['model']} (it serves {sorted(i for i in ids if i)})", 3)
 
 
+EXTRA_DIMENSIONS = (("surfaces", "surface"), ("signing", "signing"), ("consent", "consent"))  # Phase B and C (ADR-019, ADR-022)
+
+
 def expand_plan(plan: dict) -> list[dict]:
     cells = [
         {"agent": a, "variant": v, "task_id": t, "rep": r}
         for a in plan["agent_names"] for v in plan["variants"] for t in plan["tasks"] for r in range(1, plan["reps"] + 1)
     ]
+    for key, name in EXTRA_DIMENSIONS:  # an absent dimension leaves the cells unchanged, so earlier plans expand as before
+        if plan.get(key):
+            cells = [c | {name: value} for c in cells for value in plan[key]]
     random.Random(plan["order_seed"]).shuffle(cells)
     return [{"run_id": f"{plan['plan_id']}-{i:04d}", **c} for i, c in enumerate(cells)]
 
@@ -151,6 +159,28 @@ def server_clock(http: httpx.Client, base: str) -> tuple[float, str]:
     return offset, health.json()["mode"]
 
 
+def mcp_precheck(http: httpx.Client, plan: dict, variant: str, surface: str, token: str | None) -> None:
+    """Before an MCP run: the surface lists the tools it should, and the poisoned surface stays private (ADR-020)."""
+    url = f"{run_base(plan, variant, token)}/mcp/{surface}"
+    try:
+        listed = http.post(url, json={"jsonrpc": "2.0", "id": 1, "method": "tools/list"}).json()["result"]["tools"]
+    except (httpx.HTTPError, ValueError, KeyError) as e:
+        raise RunnerStop(f"MCP server {url} failed the check: {describe_failure(e)}", 3) from e
+    if [t["name"] for t in listed] != [t["name"] for t in tools_for(surface)]:
+        raise RunnerStop(f"MCP server {url} lists unexpected tools", 3)
+    if surface == "poisoned":
+        bare = f"{run_base(plan, variant, None)}/mcp/{surface}"
+        if http.post(bare, json={"jsonrpc": "2.0", "id": 1, "method": "tools/list"}).status_code != 404:
+            raise RunnerStop("the poisoned surface answers without a run token", 3)
+
+
+def account_precheck(http: httpx.Client, base: str) -> None:
+    """Before a sign-in run: the protected page answers 401 with a discovery link to an unsigned request."""
+    response = http.get(f"{base}/account/saved-orders")
+    if response.status_code != 401 or "resource_metadata" not in response.headers.get("www-authenticate", ""):
+        raise RunnerStop(f"protected page on {base} did not answer 401 with a discovery link (status {response.status_code})", 3)
+
+
 def run_one(cell: dict, plan: dict, task: Task, agent: Agent, http: httpx.Client, token: str | None = None) -> dict:
     """token is the run token. In per_run mode the run gets its own host and run_plan supplies the token."""
     cfg = plan["agents"][cell["agent"]]
@@ -160,15 +190,20 @@ def run_one(cell: dict, plan: dict, task: Task, agent: Agent, http: httpx.Client
     base = run_base(plan, cell["variant"], token if per_run else None)
     if per_run:
         precheck(http, base)
-    if cfg["kind"] == "openai_compat":
+    if cfg["kind"] in LOCAL_KINDS:
         local_precheck(http, cfg)
+    if cell.get("surface"):
+        mcp_precheck(http, plan, cell["variant"], cell["surface"], token if per_run else None)
+    if cell["variant"] == "account":
+        account_precheck(http, base)
     offset, mode = server_clock(http, base)
-    seed = cell["rep"] if cfg["kind"] == "openai_compat" else None
+    seed = cell["rep"] if cfg["kind"] in LOCAL_KINDS else None
     skew = timedelta(milliseconds=offset)
     start = datetime.now(timezone.utc) + skew
     record = {
         "run_id": cell["run_id"], "plan_id": plan["plan_id"], "agent": cell["agent"], **describe(cfg),
         "variant": cell["variant"], "task_id": cell["task_id"], "rep": cell["rep"], "seed": seed,
+        "mcp_surface": cell.get("surface"), "signing": cell.get("signing"), "consent": cell.get("consent"),
         "run_host": base.split("://", 1)[1] if per_run else None, "run_token": token if per_run else None,
         "date": start.date().isoformat(), "start": iso(start), "interceptor": mode,
         "retries": 0, "api_tokens": None, "claimed_fetches": [], "error": None, "answer_raw": None, "answer": None,
@@ -176,6 +211,11 @@ def run_one(cell: dict, plan: dict, task: Task, agent: Agent, http: httpx.Client
     budget = Budget(**plan["budget"])
     try:
         start_url = f"{base}/" if per_run else f"{base}/?r={cell['run_id']}"
+        if cell.get("surface"):
+            start_url = f"{base}/mcp/{cell['surface']}"
+        configure = getattr(agent, "configure", None)
+        if configure:
+            configure(cell)
         result = agent(task.question, start_url, seed, budget)
         record |= {"state": "answered", "answer_raw": result.text, "answer": final_answer(result.text),
                    "api_tokens": result.api_tokens, "retries": result.retries, "claimed_fetches": result.claimed_fetches}
@@ -196,10 +236,18 @@ def run_plan(
     check_plan(plan)
     agents = agents or {name: make_agent(plan["agents"][name]) for name in plan["agent_names"]}
     existing = load_jsonl(runs_path) if runs_path.exists() else []
+    foreign_plan_ids = {r.get("plan_id") for r in existing if r.get("plan_id") != plan["plan_id"]}
+    if foreign_plan_ids:
+        labels = sorted("<missing>" if plan_id is None else str(plan_id) for plan_id in foreign_plan_ids)
+        raise ValueError(
+            f"runs file {runs_path} contains records from plan(s) {', '.join(labels)}; "
+            f"refusing to append plan {plan['plan_id']}"
+        )
     done = {r["run_id"] for r in existing}
     used_tokens = {r["run_token"] for r in existing if r.get("run_token")}
     runs_path.parent.mkdir(parents=True, exist_ok=True)
     count = 0
+    connector_errors = 0
     for cell in expand_plan(plan):
         if cell["run_id"] in done:
             continue
@@ -210,6 +258,9 @@ def run_plan(
         with runs_path.open("a") as f:
             f.write(json.dumps(record) + "\n")
         count += 1
+        connector_errors = connector_errors + 1 if str(record.get("error") or "").startswith("connector_error") else 0
+        if connector_errors >= CONNECTOR_ERROR_LIMIT:
+            raise RunnerStop(f"{CONNECTOR_ERROR_LIMIT} connector errors in a row. Check the MCP server and stop", 3)
         print(f"{record['run_id']} {record['agent']} {record['variant']} {record['task_id']} -> {record['state']}", flush=True)
         sleep(plan["quiet_gap_seconds"])
     return count

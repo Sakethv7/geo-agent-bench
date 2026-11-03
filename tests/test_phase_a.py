@@ -8,12 +8,14 @@ from types import SimpleNamespace
 import anthropic
 import httpx
 import pytest
+import yaml
 from starlette.testclient import TestClient
 
 from geobench.agents import CONTEXT_OVERFLOW, AgentError, Budget, BudgetExceeded, LOCAL_UA, claude_tools_agent, openai_compat_agent
 from geobench.content import CANARIES, NAV_PATHS, SOURCE_MAP_PATH, build_site, chrome
 from geobench.metrics import build_results
 from geobench.parse_logs import Assignment
+from geobench.runner import expand_plan
 from geobench.server import make_app
 from geobench.strangers import label, load_ranges, spoof_table, stranger_table
 from geobench.tasks import load_tasks
@@ -27,6 +29,33 @@ RANGES = {"fetched": "2026-11-03", "vendors": {
     "anthropic-user": {"tokens": ["Claude-User"], "cidrs": ["160.79.104.0/21"], "source": "x"},
     "anthropic-crawler": {"tokens": ["ClaudeBot"], "cidrs": [], "source": "none"},
 }}
+
+
+def test_portfolio_plan_is_a_separate_complete_36_run_matrix():
+    plan = yaml.safe_load((ROOT / "plans" / "portfolio-phase-a.yaml").read_text())
+    cells = expand_plan(plan)
+    assert plan["plan_id"] == "portfolio-phase-a"
+    assert plan["reps"] == 1 and len(cells) == 36
+    assert {cell["run_id"] for cell in cells} == {f"portfolio-phase-a-{i:04d}" for i in range(36)}
+    observed = {(cell["agent"], cell["variant"], cell["task_id"], cell["rep"]) for cell in cells}
+    expected = {
+        (agent, variant, task, 1)
+        for agent in plan["agent_names"]
+        for variant in plan["variants"]
+        for task in plan["tasks"]
+    }
+    assert observed == expected
+
+
+def test_qwen_robustness_followup_is_a_separate_12_run_matrix():
+    plan = yaml.safe_load((ROOT / "plans" / "phase-a-qwen-robust.yaml").read_text())
+    cells = expand_plan(plan)
+    assert plan["plan_id"] == "phase-a-qwen-robust"
+    assert plan["agent_names"] == ["qwen-robust"] and len(cells) == 12
+    assert plan["agents"]["qwen-robust"]["navigation_policy"] == "structured-v1"
+    assert {(cell["variant"], cell["task_id"]) for cell in cells} == {
+        (variant, task) for variant in plan["variants"] for task in plan["tasks"]
+    }
 
 
 def html_pages(variant):

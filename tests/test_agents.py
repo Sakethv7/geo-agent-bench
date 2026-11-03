@@ -6,7 +6,8 @@ import httpx
 import pytest
 
 from geobench.agents import (
-    AgentError, Budget, BudgetExceeded, LOCAL_UA, claude_agent, describe, fetch_url, openai_compat_agent,
+    AgentError, Budget, BudgetExceeded, LOCAL_UA, _bounded_messages, claude_agent, describe, fetch_url,
+    fetch_url_structured, openai_compat_agent,
 )
 
 CFG = {"kind": "openai_compat", "base_url": "http://llm.test/v1", "model": "qwen-x", "model_file": "qwen-x-4bit",
@@ -80,9 +81,61 @@ def test_fetch_url_rules():
     assert fetch_url(not_found, "http://legacy.test/x") == "HTTP 404"
 
 
+def test_structured_fetch_prefers_main_resolves_links_and_bounds_content():
+    html = """<html><body><nav>chrome noise <a href='/products'>Products</a></nav>
+    <main><h1>Manual</h1><p>Maximum temperature is 85 C.</p></main>
+    <script>secret noise</script></body></html>"""
+    http = httpx.Client(transport=httpx.MockTransport(lambda r: httpx.Response(200, text=html)))
+    page = fetch_url_structured(http, "https://legacy.test/", limit=30)
+    assert "Manual" in page.content and "chrome noise" not in page.content and "secret noise" not in page.content
+    assert page.links == ["https://legacy.test/products"]
+    assert len(page.content.split("VISIBLE CONTENT:\n", 1)[1].split("\nLINKS:", 1)[0]) <= 30
+
+
+def test_bounded_messages_compacts_old_tool_bodies_and_keeps_recent_evidence():
+    messages = [
+        {"role": "tool", "tool_call_id": "old", "content": "URL: https://x/old\n" + "a" * 50},
+        {"role": "tool", "tool_call_id": "new", "content": "URL: https://x/new\n" + "b" * 20},
+    ]
+    bounded = _bounded_messages(messages, 45)
+    assert "compacted" in bounded[0]["content"] and bounded[1]["content"] == messages[1]["content"]
+    assert bounded is not messages and messages[0]["content"].endswith("a" * 50)
+
+
+def test_robust_local_loop_retries_an_unsupported_home_page_answer_then_navigates():
+    replies = [
+        tool_call("https://legacy.test/", "home"),
+        {"role": "assistant", "content": "The information is unavailable.\nANSWER: unavailable"},
+        tool_call("https://legacy.test/products", "products"),
+        {"role": "assistant", "content": "SOURCE: https://legacy.test/products\nANSWER: 85 C"},
+    ]
+    seen = {"bodies": [], "fetch": []}
+    queue = list(replies)
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path.endswith("/chat/completions"):
+            seen["bodies"].append(json.loads(request.content))
+            return httpx.Response(200, json={"choices": [{"message": queue.pop(0)}], "usage": {}})
+        seen["fetch"].append(str(request.url))
+        if request.url.path == "/":
+            return httpx.Response(200, text="<main>Welcome</main><a href='/products'>Products</a>")
+        return httpx.Response(200, text="<main>Maximum operating temperature: 85 C</main>")
+
+    cfg = CFG | {"navigation_policy": "structured-v1", "fetch_limit": 8000, "early_answer_retries": 1}
+    result = openai_compat_agent(cfg, httpx.Client(transport=httpx.MockTransport(handler)))(
+        "Maximum temperature?", "https://legacy.test/", 1, Budget()
+    )
+    assert result.text.endswith("ANSWER: 85 C") and result.retries == 1
+    assert result.claimed_fetches == ["https://legacy.test/", "https://legacy.test/products"]
+    assert "not yet supported" in seen["bodies"][2]["messages"][-1]["content"]
+    assert "VISIBLE CONTENT" in seen["bodies"][1]["messages"][-1]["content"]
+
+
 def test_describe_marks_local_harness_and_claude():
     assert describe(CFG)["harness"]["obey_robots"] is False and describe(CFG)["model_file"] == "qwen-x-4bit"
     assert describe({"kind": "claude", "model": "claude-opus-5-5"})["harness"] is None
+    robust = describe(CFG | {"navigation_policy": "structured-v1"})["harness"]
+    assert robust["navigation_policy"] == "structured-v1" and robust["fetch_limit"] == 8000
 
 
 class FakeClient:

@@ -87,6 +87,22 @@ def test_rerun_resumes_and_skips_finished_runs(tmp_path):
     assert len(load_jsonl(runs_path)) == 2
 
 
+def test_run_refuses_to_mix_plan_ids_before_calling_an_agent(tmp_path):
+    client, _ = site(tmp_path)
+    runs_path = tmp_path / "runs.jsonl"
+    original = '{"run_id":"research-0000","plan_id":"research","run_token":"abcd1234"}\n'
+    runs_path.write_text(original)
+    called = []
+
+    def agent(question, start_url, seed, budget):
+        called.append(True)
+        return AgentResult("ANSWER: 85 C", None, 0, [])
+
+    with pytest.raises(ValueError, match=r"contains records from plan\(s\) research; refusing to append plan portfolio"):
+        run_plan(plan(plan_id="portfolio", reps=1), TASKS, runs_path, client, {"fake": agent}, lambda s: None)
+    assert called == [] and runs_path.read_text() == original
+
+
 def test_failure_states_are_recorded_not_retried(tmp_path):
     client, _ = site(tmp_path)
     calls = []
