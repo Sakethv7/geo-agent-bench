@@ -1,0 +1,30 @@
+# dry-phase-a plan (ADR-015). The runner refuses to start while any value is TODO.
+plan_id: dry-phase-a
+domain: wanderingcodersv.dev
+scheme: https
+host_mode: per_run           # each run gets its own host name: <token>.<variant>.<domain> (ADR-009)
+variants: [legacy, ai]       # ADR-011: the ai variant is built and live since 2026-11-03
+agent_names: [claude-vendor, claude-raw, qwen-llamacpp]
+tasks: [t01, t04]
+reps: 1
+order_seed: 20261102
+quiet_gap_seconds: 35          # must be at least 32: the parser tail is 30 s and the start pad is 2 s
+budget: {max_requests: 40, max_seconds: 600}
+pull_cmd: "gcloud compute scp instance-20261102-203604:/srv/geobench/runs/requests.jsonl runs/requests.jsonl --zone=us-central1-c --quiet"   # no shell: split on spaces
+agents:
+  claude-vendor:
+    kind: claude
+    model: claude-sonnet-5-5
+  claude-raw:
+    kind: claude_tools
+    model: claude-sonnet-5-5
+    obey_robots: false
+  qwen-llamacpp:
+    kind: openai_compat
+    base_url: http://localhost:8080/v1
+    model: qwen3-8b-q4_k_m
+    model_file: Qwen3-8B-Q4_K_M.gguf (Qwen/Qwen3-8B-GGUF, sha256 d98cdcbd03e17ce47681435b5150e34c1417f50b5c0019dd560e4882c5745785)
+    runtime: llama.cpp
+    server_args: "-m ~/models/Qwen3-8B-Q4_K_M.gguf --alias qwen3-8b-q4_k_m -c 32768 --cache-type-k q8_0 --cache-type-v q8_0 --jinja --port 8080"
+    temperature: 0.7
+    obey_robots: false

@@ -5,6 +5,7 @@ from datetime import date
 from pathlib import Path
 from types import SimpleNamespace
 
+import anthropic
 import httpx
 import pytest
 from starlette.testclient import TestClient
@@ -184,3 +185,11 @@ def test_ranges_file_must_exist_and_be_fresh(tmp_path):
     f.write_text('{"fetched": "2026-09-01", "vendors": {}}')
     with pytest.raises(ValueError, match="days old"):
         load_ranges(f, date(2026, 11, 3))
+
+
+def test_claude_tools_prompt_too_long_becomes_context_overflow():
+    request = httpx.Request("POST", "https://api.anthropic.com/v1/messages")
+    too_long = anthropic.BadRequestError("prompt is too long: 210000 tokens > 200000 maximum",
+                                         response=httpx.Response(400, request=request), body=None)
+    with pytest.raises(AgentError, match=f"^{CONTEXT_OVERFLOW}$"):
+        claude_tools_agent({"model": "m"}, FakeClient([too_long]))("q?", "https://legacy.example.test/", None, Budget())

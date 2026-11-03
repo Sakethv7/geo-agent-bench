@@ -175,6 +175,10 @@ def claude_tools_agent(cfg: dict, client: anthropic.Anthropic | None = None, htt
                 )
             except anthropic.APITimeoutError as e:
                 raise BudgetExceeded("max_seconds") from e
+            except anthropic.BadRequestError as e:
+                if "prompt is too long" in str(e).lower():  # raw pages filled the context window
+                    raise AgentError(CONTEXT_OVERFLOW) from e
+                raise AgentError(f"{type(e).__name__}: {e}") from e
             except anthropic.APIError as e:
                 raise AgentError(f"{type(e).__name__}: {e}") from e
             tokens["in"] += response.usage.input_tokens
