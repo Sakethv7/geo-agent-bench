@@ -17,7 +17,7 @@ from geobench.content import BUILDERS, ORDERS_PATH, Page, build_site, orders_htm
 from geobench.interceptor import Decision, RequestInfo, decide
 from geobench.mcp import SURFACES, handle_message
 from geobench.oauth import OAuthServer, load_user_secret
-from geobench.webbotauth import DIRECTORY_PATH, DIRECTORY_TYPE, Verifier
+from geobench.webbotauth import DIRECTORY_PATH, DIRECTORY_TYPE, Verifier, claims_signature_only_bot
 
 LOCAL_PEERS = {"127.0.0.1", "::1"}
 TOKEN_RE = re.compile(r"^[a-z0-9]{8}$")
@@ -80,8 +80,11 @@ def make_app(
     user_secret: str | None = None,
     verifier: Verifier | None = None,
     oauth: OAuthServer | None = None,
+    signature_policy: str = "record",
 ) -> Starlette:
     """mode is "record" (interceptor labels, never blocks) or "enforce".
+    signature_policy is "record" (a signature verdict is only logged) or "enforce". Enforce answers 403 on the account host
+    to a request that claims our own bot name without a valid signature (ADR-026). Nothing else is ever blocked by it.
     domain turns on run hosts (<token>.<variant>.<domain>). See docs/api.md, per-run host names."""
     sites = {v: build_site(v) for v in BUILDERS}
     sites[BOT_HOST] = {DIRECTORY_PATH: Page("directory", json.dumps(directory), DIRECTORY_TYPE)} if directory else {}
@@ -180,6 +183,9 @@ def make_app(
         twin = negotiated_twin(sites[variant], variant, path, request.headers.get("accept", ""))
         info = RequestInfo(host, path, request.method, request.headers.get("user-agent", ""), client_ip(request), dict(request.headers))
         decision = decide(info, mode, reference)
+        if (signature_policy == "enforce" and variant == "account" and claims_signature_only_bot(request.headers.get("user-agent"))
+                and (verdict is None or verdict.verdict != "valid")):
+            decision = Decision("block", "unsigned_claimed_bot", None, "signature required")
         if decision.action == "block":
             response: Response = PlainTextResponse("Forbidden", status_code=403)
         elif variant == "native" and path.startswith("/mcp/"):

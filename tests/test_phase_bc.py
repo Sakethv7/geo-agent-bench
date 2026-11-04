@@ -164,14 +164,16 @@ def test_all_signature_agent_forms_verify():
     assert url_form["Signature-Agent"] == f'sig1="{path}"' and 'key="sig1"' in url_form["Signature-Input"]
     assert origin_form["Signature-Agent"] == 'sig1="https://bot.example.test"'
     assert legacy["Signature-Agent"] == '"https://bot.example.test/"'
-    for headers in (url_form, origin_form, legacy):
+    typed = sign_headers(key, "https://bot.example.test/", "site.example.test", form="origin_typed")
+    assert typed["Signature-Agent"] == 'sig1="https://bot.example.test";type=directory'  # the form in Cloudflare's README
+    for headers in (url_form, origin_form, typed, legacy):
         assert verifier.verify(headers, "site.example.test").verdict == "valid"
     from geobench.webbotauth import directory_url
     assert {directory_url(u) for u in fetched} == {path}  # the url form, the origin form and the legacy form all end at the same key set
     swapped = url_form | {"Signature-Agent": 'sig1="https://evil.example.test/keys.json"'}  # the signed member changed
     assert verifier.verify(swapped, "site.example.test").verdict == "invalid"
-    typed = 'sig1="https://bot.example.test/jwks.json";type=jwks_uri'  # a member with a parameter is ignored
-    assert verifier.verify(url_form | {"Signature-Agent": typed}, "site.example.test").reason == "signed_member_missing"
+    other = 'sig1="https://bot.example.test/jwks.json";type=jwks_uri'  # a member with another parameter is ignored
+    assert verifier.verify(url_form | {"Signature-Agent": other}, "site.example.test").reason == "signed_member_missing"
 
 
 def test_directory_url_rules():
@@ -544,3 +546,159 @@ def test_second_empty_reply_ends_the_run_and_default_is_no_retry():
     off = openai_mcp_agent({"base_url": "http://localhost:8080/v1", "model": "m"}, EmptyThenAnswerHttp())
     result = off("q", "https://x.example.test/mcp/minimal", 1, Budget())
     assert result.text == "" and result.retries == 0
+
+
+# ---- blocking by signature (ADR-026)
+
+def make_enforcing(tmp_path, host, key):
+    log = tmp_path / "requests.jsonl"
+    verifier = Verifier(fetch=lambda url: directory_document([key]), url_ok=lambda url: True)
+    app = make_app(log, domain="example.test", verifier=verifier, oauth=OAuthServer(SECRET), user_secret=SECRET, signature_policy="enforce")
+    return TestClient(app, base_url=f"https://{host}"), log
+
+
+def test_enforce_blocks_our_bot_name_without_a_valid_signature_on_account_only(tmp_path):
+    key = Ed25519PrivateKey.generate()
+    ua = {"User-Agent": "geobench-local/0.1"}
+    account, log = make_enforcing(tmp_path, f"{TOKEN}.account.example.test", key)
+    authority = f"{TOKEN}.account.example.test"
+    assert account.get("/about", headers=ua).status_code == 403
+    spoof = sign_headers(Ed25519PrivateKey.generate(), "https://bot.example.test/", authority)
+    assert account.get("/about", headers=ua | spoof).status_code == 403
+    good = sign_headers(key, "https://bot.example.test/", authority)
+    assert account.get("/about", headers=ua | good).status_code == 200
+    assert account.get("/about", headers={"User-Agent": "curl/8"}).status_code == 200  # other clients are never blocked
+    assert account.get("/about", headers={"User-Agent": "Claude-User/1.0"}).status_code == 200
+    legacy, _ = make_enforcing(tmp_path, f"{TOKEN}.legacy.example.test", key)
+    assert legacy.get("/", headers=ua).status_code == 200  # other hosts are untouched
+    blocked = [x for x in lines(log) if x["interceptor"]["decision"] == "block"]
+    assert len(blocked) == 2 and all(x["interceptor"]["class"] == "unsigned_claimed_bot" and x["status"] == 403 for x in blocked)
+
+
+def test_record_policy_blocks_nothing(tmp_path):
+    key = Ed25519PrivateKey.generate()
+    client, _, _ = make_client(tmp_path, f"{TOKEN}.account.example.test", key)
+    assert client.get("/about", headers={"User-Agent": "geobench-local/0.1"}).status_code == 200
+
+
+def test_blocked_requests_by_signature_are_counted_and_not_false_blocks_for_spoof_runs():
+    tasks = load_tasks(ROOT / "tasks" / "tasks.yaml")
+    blocked = {"method": "GET", "status": 403, "kind": "page", "path": "/", "ts": "t", "bytes": 9,
+               "interceptor": {"decision": "block", "class": "unsigned_claimed_bot"}}
+    spoof = run_row(make_run(variant="account", task_id="t07", signing="spoof", consent="granted", answer_raw="ANSWER: unavailable"), [blocked], tasks["t07"], [])
+    assert spoof["sig_blocked"] == 1 and spoof["blocked_requests"] == 1 and spoof["false_block"] == 0
+    signed = run_row(make_run(variant="account", task_id="t07", signing="signed", consent="granted", answer_raw="ANSWER: unavailable"), [blocked], tasks["t07"], [])
+    assert signed["false_block"] == 1  # blocking a validly signed run would be a mistake
+
+
+# ---- a model that runs OAuth by itself (ADR-027)
+
+def toolbox_for(base, key):
+    from geobench.oauth_tools import OAuthToolbox
+    box = OAuthToolbox("geobench-local/0.1", "https://bot.example.test/", key=key, secret=SECRET)
+    box.start(f"{base}/", "granted")
+    return box
+
+
+def test_toolbox_supports_the_whole_flow_and_stays_on_one_host(live_site):
+    import re
+    from urllib.parse import parse_qs, urlparse
+    base, key, log = live_site
+    box = toolbox_for(base, key)
+    first = box.http_request("GET", f"{base}/account/saved-orders")
+    assert first.startswith("HTTP 401") and "resource_metadata=" in first and "www-authenticate" in first
+    meta_url = re.search(r'resource_metadata="([^"]+)"', first).group(1)
+    issuer = json.loads(box.http_request("GET", meta_url).split("\n\n", 1)[1])["authorization_servers"][0]
+    endpoints = json.loads(box.http_request("GET", f"{issuer}/.well-known/oauth-authorization-server").split("\n\n", 1)[1])
+    verifier = "v" * 50
+    challenge = box.pkce_challenge(verifier)
+    query = f"client_id=geobench-agent&redirect_uri=http://127.0.0.1:0/callback&response_type=code&scope=orders:read&state=s1&code_challenge={challenge}&code_challenge_method=S256"
+    pending = json.loads(box.http_request("GET", f"{endpoints['authorization_endpoint']}?{query}").split("\n\n", 1)[1])
+    redirect = box.ask_user(pending["consent_request"])
+    code = parse_qs(urlparse(redirect).query)["code"][0]
+    form = f"grant_type=authorization_code&code={code}&code_verifier={verifier}&client_id=geobench-agent&redirect_uri=http://127.0.0.1:0/callback"
+    token = json.loads(box.http_request("POST", endpoints["token_endpoint"], {"Content-Type": "application/x-www-form-urlencoded"}, form).split("\n\n", 1)[1])
+    page = box.http_request("GET", f"{base}/account/saved-orders", {"Authorization": f"Bearer {token['access_token']}"})
+    assert page.startswith("HTTP 200") and ORDERS[0][0] in page
+    assert box.http_request("GET", "https://other.example.test/").startswith("Refused")
+    assert box.ask_user("x").startswith("HTTP 400") or "invalid" in box.ask_user("x")
+    assert {x["sig"]["verdict"] for x in lines(log) if x.get("sig")} == {"valid"}  # the harness signs, the model never sees it
+
+
+def test_ask_user_denial_and_early_call(live_site):
+    base, key, _ = live_site
+    box = toolbox_for(base, key)
+    assert box.ask_user("x").startswith("No sign-in is pending")
+    box.start(f"{base}/", "denied")
+    box.http_request("GET", f"{base}/oauth/authorize?client_id=geobench-agent&redirect_uri=http://127.0.0.1:0/callback&response_type=code&scope=orders:read&state=s&code_challenge=abc&code_challenge_method=S256")
+    pending = box.issuer  # set by a successful authorize call
+    assert pending.startswith("http")
+
+
+def test_oauth_stage_orders_the_steps():
+    from geobench.metrics import oauth_stage
+    ev = lambda endpoint, result=None: {"oauth": {"endpoint": endpoint, "result": result}}
+    assert oauth_stage([]) == "none"
+    assert oauth_stage([ev("protected", "no_token")]) == "none"
+    assert oauth_stage([ev("protected", "no_token"), ev("resource_metadata")]) == "discovery"
+    assert oauth_stage([ev("resource_metadata"), ev("authorize", "pending"), ev("consent", "denied")]) == "consent"
+    assert oauth_stage([ev("token", "issued"), ev("protected", "ok")]) == "page"
+
+
+class ScriptedOAuthModel:
+    """A fake chat model that does the OAuth steps in order by reading the last tool result, as a model would."""
+
+    def __init__(self, base):
+        self.base, self.step, self.state, self.sent = base, 0, {}, []
+
+    def post(self, url, json=None, headers=None, timeout=None):
+        import re as _re
+        messages = json["messages"]
+        last = messages[-1]["content"] if messages[-1]["role"] == "tool" else ""
+        step = sum(m["role"] == "tool" for m in messages)
+        verifier = "v" * 50
+        from geobench.oauth_tools import OAuthToolbox
+        challenge = OAuthToolbox.pkce_challenge(verifier)
+        def call(name, args):
+            return {"choices": [{"message": {"role": "assistant", "content": None, "tool_calls": [{"id": f"c{step}", "function": {"name": name, "arguments": __import__("json").dumps(args)}}]}}],
+                    "usage": {"prompt_tokens": 5, "completion_tokens": 1}}
+        if step == 0:
+            return FakeResponse(call("http_request", {"method": "GET", "url": f"{self.base}/account/saved-orders"}))
+        if step == 1:
+            self.state["meta"] = _re.search(r'resource_metadata="([^"]+)"', last).group(1)
+            return FakeResponse(call("http_request", {"method": "GET", "url": self.state["meta"]}))
+        if step == 2:
+            issuer = __import__("json").loads(last.split("\n\n", 1)[1])["authorization_servers"][0]
+            return FakeResponse(call("http_request", {"method": "GET", "url": f"{issuer}/.well-known/oauth-authorization-server"}))
+        if step == 3:
+            ep = __import__("json").loads(last.split("\n\n", 1)[1])
+            self.state["token_endpoint"] = ep["token_endpoint"]
+            q = f"client_id=geobench-agent&redirect_uri=http://127.0.0.1:0/callback&response_type=code&scope=orders:read&state=s1&code_challenge={challenge}&code_challenge_method=S256"
+            return FakeResponse(call("http_request", {"method": "GET", "url": f"{ep['authorization_endpoint']}?{q}"}))
+        if step == 4:
+            return FakeResponse(call("ask_user", {"consent_request": __import__("json").loads(last.split("\n\n", 1)[1])["consent_request"]}))
+        if step == 5:
+            if "error=access_denied" in last:
+                return FakeResponse({"choices": [{"message": {"role": "assistant", "content": "The user refused. ANSWER: unavailable"}}], "usage": {}})
+            code = _re.search(r"code=([^&]+)", last).group(1)
+            form = f"grant_type=authorization_code&code={code}&code_verifier={verifier}&client_id=geobench-agent&redirect_uri=http://127.0.0.1:0/callback"
+            return FakeResponse(call("http_request", {"method": "POST", "url": self.state["token_endpoint"], "headers": {"Content-Type": "application/x-www-form-urlencoded"}, "body": form}))
+        if step == 6:
+            token = __import__("json").loads(last.split("\n\n", 1)[1])["access_token"]
+            return FakeResponse(call("http_request", {"method": "GET", "url": f"{self.base}/account/saved-orders", "headers": {"Authorization": f"Bearer {token}"}}))
+        order = _re.search(r"ORD-\d+", last)
+        return FakeResponse({"choices": [{"message": {"role": "assistant", "content": f"ANSWER: {order.group(0) if order else 'unavailable'}"}}], "usage": {}})
+
+
+@pytest.mark.parametrize("consent,expected", [("granted", "ORD-48213"), ("denied", "unavailable")])
+def test_qwen_oauth_agent_runs_the_flow_with_its_tools(live_site, consent, expected):
+    from geobench.agents import Budget, openai_oauth_agent
+    base, key, log = live_site
+    agent = openai_oauth_agent({"base_url": "http://localhost:8080/v1", "model": "m", "signature_agent": "https://bot.example.test/"},
+                               ScriptedOAuthModel(base), toolbox_for(base, key))
+    agent.configure({"consent": consent})
+    result = agent("What is the order number?", f"{base}/", 1, Budget(max_requests=12))
+    assert result.text.endswith(expected)
+    results = [(x["oauth"]["endpoint"], x["oauth"].get("result")) for x in lines(log) if x.get("oauth")]
+    assert ("authorize", "pending") in results
+    assert (("token", "issued") in results) == (consent == "granted")

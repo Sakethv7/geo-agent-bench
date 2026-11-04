@@ -697,3 +697,7 @@ With one retry on an empty reply (ADR-024), Qwen scored 18 of 18 on the Phase B 
 ### Phase C follow-up: Claude on the protected page (2026-11-03)
 
 Claude with Anthropic's fetch tool, no sign-in path, 6 runs: all 6 said the page needs a sign-in and made up no order number. The tool hides the headers of a 401, so Claude never saw the sign-in link and requested none of the sign-in endpoints. This shows honesty at a refusal. It is not a test of OAuth and not a ranking against Qwen. Details are in the ADR-022 addendum and in `reports/phase-c-claude/`.
+
+## Results of Phase D (2026-11-03)
+
+The three items that Phase C left untested are now tested. Interop with Cloudflare's reference package found and fixed one bug. A signature gate, on one host and for my own bot name only, blocked 6 of 6 spoofed or unsigned runs and passed 3 of 3 signed runs with no false block. A model that does the OAuth steps itself succeeded in 3 of 3 granted Claude runs and 0 of 3 granted Qwen runs. Qwen never followed the sign-in link in the 401. Details are in "Observed results of Phase D" in `docs/adr.md`.

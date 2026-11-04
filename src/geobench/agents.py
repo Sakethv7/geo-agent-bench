@@ -21,6 +21,7 @@ import anthropic
 import httpx
 
 from geobench.account_auth import AccountAuth
+from geobench.oauth_tools import OAUTH_PROMPT, TOOLS as OAUTH_TOOL_DEFS, OAuthToolbox
 from geobench.webbotauth import DRAFT
 
 LOCAL_UA = "geobench-local/0.1"
@@ -28,7 +29,7 @@ FETCH_LIMIT = 60_000
 STRUCTURED_FETCH_LIMIT = 8_000
 TOOL_HISTORY_CHAR_BUDGET = 48_000
 STRUCTURED_LINK_LIMIT = 40
-LOCAL_KINDS = {"openai_compat", "openai_mcp"}  # agents that run on the laptop and need the local-server pre-check
+LOCAL_KINDS = {"openai_compat", "openai_mcp", "openai_oauth"}  # agents that run on the laptop and need the local-server pre-check
 MCP_BETA = "mcp-client-2025-11-20"
 MCP_PROTOCOL = "2025-06-18"
 EMPTY_NUDGE = (
@@ -483,6 +484,122 @@ def claude_agent(cfg: dict, client: anthropic.Anthropic | None = None) -> Agent:
     return run
 
 
+def _oauth_toolbox(cfg: dict) -> OAuthToolbox:
+    return OAuthToolbox(LOCAL_UA, cfg["signature_agent"])
+
+
+def openai_oauth_agent(cfg: dict, http: httpx.Client | None = None, toolbox: OAuthToolbox | None = None) -> Agent:
+    """Local Qwen runs OAuth by itself with an HTTP tool, a PKCE helper and ask_user (ADR-027)."""
+    http = http or httpx.Client()
+    base = cfg["base_url"].rstrip("/")
+    tools = [{"type": "function", "function": {"name": n, "description": d, "parameters": sch}} for n, d, sch in OAUTH_TOOL_DEFS]
+    state = {"toolbox": toolbox, "consent": "granted"}
+
+    def configure(cell: dict) -> None:
+        state["consent"] = cell.get("consent", "granted")
+
+    def run(question: str, start_url: str, seed: int | None, budget: Budget) -> AgentResult:
+        box = state["toolbox"] = state["toolbox"] or _oauth_toolbox(cfg)
+        box.start(start_url, state["consent"])
+        messages = [{"role": "user", "content": OAUTH_PROMPT.format(start_url=start_url, question=question)}]
+        deadline = time.monotonic() + budget.max_seconds
+        calls_made = 0
+        empty_retries = 0
+        tokens = {"in": 0, "out": 0}
+        while True:
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                raise BudgetExceeded("max_seconds")
+            body = {"model": cfg["model"], "messages": _bounded_messages(messages, cfg.get("tool_history_char_budget", TOOL_HISTORY_CHAR_BUDGET)),
+                    "tools": tools, "temperature": cfg.get("temperature", 0.7)}
+            if seed is not None:
+                body["seed"] = seed
+            try:
+                r = http.post(f"{base}/chat/completions", json=body, timeout=remaining)
+                r.raise_for_status()
+            except httpx.TimeoutException as e:
+                raise BudgetExceeded("max_seconds") from e
+            except httpx.HTTPStatusError as e:
+                if _is_context_overflow(e.response):
+                    raise AgentError(CONTEXT_OVERFLOW) from e
+                raise AgentError(f"{type(e).__name__}: {e}") from e
+            except httpx.HTTPError as e:
+                raise AgentError(f"{type(e).__name__}: {e}") from e
+            data = r.json()
+            usage = data.get("usage") or {}
+            tokens["in"] += usage.get("prompt_tokens", 0)
+            tokens["out"] += usage.get("completion_tokens", 0)
+            message = data["choices"][0]["message"]
+            messages.append(message)
+            calls = message.get("tool_calls") or []
+            if not calls:
+                if not (message.get("content") or "").strip() and empty_retries < cfg.get("empty_reply_retries", 0):
+                    empty_retries += 1
+                    messages.append({"role": "user", "content": EMPTY_NUDGE})
+                    continue
+                return AgentResult(message.get("content") or "", tokens, empty_retries, [])
+            for call in calls:
+                if calls_made >= budget.max_requests:
+                    raise BudgetExceeded("max_requests")
+                calls_made += 1
+                try:
+                    content = box.call(call["function"]["name"], json.loads(call["function"]["arguments"] or "{}"))
+                except (KeyError, ValueError, TypeError):
+                    content = "Invalid arguments"
+                messages.append({"role": "tool", "tool_call_id": call["id"], "content": content})
+
+    run.configure = configure
+    return run
+
+
+def claude_oauth_agent(cfg: dict, client: anthropic.Anthropic | None = None, toolbox: OAuthToolbox | None = None) -> Agent:
+    """Claude runs OAuth by itself with the same three client tools (ADR-027)."""
+    client = client or anthropic.Anthropic(max_retries=3)
+    tools = [{"name": n, "description": d, "input_schema": sch} for n, d, sch in OAUTH_TOOL_DEFS]
+    state = {"toolbox": toolbox, "consent": "granted"}
+
+    def configure(cell: dict) -> None:
+        state["consent"] = cell.get("consent", "granted")
+
+    def run(question: str, start_url: str, seed: int | None, budget: Budget) -> AgentResult:
+        box = state["toolbox"] = state["toolbox"] or _oauth_toolbox(cfg)
+        box.start(start_url, state["consent"])
+        messages = [{"role": "user", "content": OAUTH_PROMPT.format(start_url=start_url, question=question)}]
+        deadline = time.monotonic() + budget.max_seconds
+        calls_made = 0
+        tokens = {"in": 0, "out": 0}
+        while True:
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                raise BudgetExceeded("max_seconds")
+            try:
+                response = client.with_options(timeout=remaining).messages.create(
+                    model=cfg["model"], max_tokens=16000, tools=tools, messages=messages)
+            except anthropic.APITimeoutError as e:
+                raise BudgetExceeded("max_seconds") from e
+            except anthropic.APIError as e:
+                raise AgentError(f"{type(e).__name__}: {e}") from e
+            tokens["in"] += response.usage.input_tokens
+            tokens["out"] += response.usage.output_tokens
+            if response.stop_reason == "refusal":
+                raise _refusal(response)
+            calls = [b for b in response.content if b.type == "tool_use"]
+            if not calls:
+                return AgentResult("".join(b.text for b in response.content if b.type == "text"), tokens, 0, [])
+            messages.append({"role": "assistant", "content": response.content})
+            results = []
+            for call in calls:
+                if calls_made >= budget.max_requests:
+                    raise BudgetExceeded("max_requests")
+                calls_made += 1
+                content = box.call(call.name, call.input if isinstance(call.input, dict) else {})
+                results.append({"type": "tool_result", "tool_use_id": call.id, "content": content})
+            messages.append({"role": "user", "content": results})
+
+    run.configure = configure
+    return run
+
+
 def claude_mcp_agent(cfg: dict, client: anthropic.Anthropic | None = None) -> Agent:
     """Claude through the API's MCP connector. Anthropic's servers call our MCP server (ADR-018)."""
     client = client or anthropic.Anthropic(max_retries=3)
@@ -518,8 +635,8 @@ def claude_mcp_agent(cfg: dict, client: anthropic.Anthropic | None = None) -> Ag
     return run
 
 
-KINDS = {"claude": claude_agent, "claude_tools": claude_tools_agent, "claude_mcp": claude_mcp_agent,
-         "openai_compat": openai_compat_agent, "openai_mcp": openai_mcp_agent}
+KINDS = {"claude": claude_agent, "claude_tools": claude_tools_agent, "claude_mcp": claude_mcp_agent, "claude_oauth": claude_oauth_agent,
+         "openai_compat": openai_compat_agent, "openai_mcp": openai_mcp_agent, "openai_oauth": openai_oauth_agent}
 
 
 def make_agent(cfg: dict) -> Agent:
@@ -533,10 +650,16 @@ def describe(cfg: dict) -> dict:
     if cfg["kind"] == "claude_tools":
         return {"agent_version": cfg["model"], "model_file": None, "runtime": "anthropic-api",
                 "harness": {"obey_robots": cfg.get("obey_robots", False), "user_agent": LOCAL_UA, "temperature": None}}
+    if cfg["kind"] == "claude_oauth":
+        return {"agent_version": cfg["model"], "model_file": None, "runtime": "anthropic-api",
+                "harness": {"tools": [n for n, _, _ in OAUTH_TOOL_DEFS], "user_agent": LOCAL_UA, "signature_draft": DRAFT, "temperature": None}}
     if cfg["kind"] == "claude_mcp":
         return {"agent_version": cfg["model"], "model_file": None, "runtime": "anthropic-api",
                 "harness": {"mcp_connector_beta": MCP_BETA, "user_agent": "Anthropic connector", "temperature": None}}
     harness = {"obey_robots": cfg.get("obey_robots", False), "user_agent": LOCAL_UA, "temperature": cfg.get("temperature", 0.7)}
+    if cfg["kind"] == "openai_oauth":
+        harness |= {"tools": [n for n, _, _ in OAUTH_TOOL_DEFS], "signature_draft": DRAFT, "tool_history_char_budget": cfg.get("tool_history_char_budget", TOOL_HISTORY_CHAR_BUDGET),
+                    "empty_reply_retries": cfg.get("empty_reply_retries", 0)}
     if cfg["kind"] == "openai_mcp":
         harness |= {"mcp_protocol": MCP_PROTOCOL, "tool_history_char_budget": cfg.get("tool_history_char_budget", TOOL_HISTORY_CHAR_BUDGET),
                     "empty_reply_retries": cfg.get("empty_reply_retries", 0)}

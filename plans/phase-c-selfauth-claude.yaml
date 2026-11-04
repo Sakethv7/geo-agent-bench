@@ -1,0 +1,20 @@
+# Phase D, ADR-027: Claude runs OAuth by itself with the same three tools. consent x 3 reps on t07 = 6 runs. Needs ANTHROPIC_API_KEY.
+# Write results only to runs/phase-c-selfauth-claude-runs.jsonl.
+plan_id: phase-c-selfauth-claude
+domain: wanderingcodersv.dev
+scheme: https
+host_mode: per_run
+variants: [account]
+consent: [granted, denied]
+agent_names: [claude-oauth-self]
+tasks: [t07]
+reps: 3
+order_seed: 20261103
+quiet_gap_seconds: 35
+budget: {max_requests: 30, max_seconds: 600}
+pull_cmd: "gcloud compute scp instance-20261102-203604:/srv/geobench/runs/requests.jsonl runs/requests.jsonl --zone=us-central1-c --quiet"
+agents:
+  claude-oauth-self:
+    kind: claude_oauth
+    model: claude-sonnet-5-5
+    signature_agent: https://bot.wanderingcodersv.dev/

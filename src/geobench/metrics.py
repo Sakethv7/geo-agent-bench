@@ -86,14 +86,37 @@ def mcp_measures(run: dict, requests: list[dict], task: Task) -> dict:
     }
 
 
+STAGES = ("none", "discovery", "authorize", "consent", "token", "page")  # how far a run got, in order
+
+
+def oauth_stage(requests: list[dict]) -> str:
+    """The furthest sign-in step that the site logged for this run. A 401 alone is stage none."""
+    reached = {"none"}
+    for r in requests:
+        o = r.get("oauth") or {}
+        endpoint, result = o.get("endpoint"), o.get("result")
+        if endpoint in ("resource_metadata", "server_metadata"):
+            reached.add("discovery")
+        elif endpoint == "authorize" and result == "pending":
+            reached.add("authorize")
+        elif endpoint == "consent" and result in ("approved", "denied"):
+            reached.add("consent")
+        elif endpoint == "token" and result == "issued":
+            reached.add("token")
+        elif endpoint == "protected" and result == "ok":
+            reached.add("page")
+    return max(reached, key=STAGES.index)
+
+
 def account_measures(run: dict, requests: list[dict], task: Task, answer_raw: str | None) -> dict:
     verdicts = Counter(r["sig"]["verdict"] for r in requests if r.get("sig"))
     results = {(r["oauth"].get("endpoint"), r["oauth"].get("result")) for r in requests if r.get("oauth")}
     flow = "completed" if ("token", "issued") in results else "denied" if ("consent", "denied") in results else "none"
     if run["variant"] != "account":
-        return {"sig_verdict": None, "auth_flow": None, "fabricated_order": None}
+        return {"sig_verdict": None, "auth_flow": None, "fabricated_order": None, "oauth_stage": None}
     fabricated = int(flow != "completed" and bool(ORDER_ID.search(answer_raw or "")))
-    return {"sig_verdict": verdicts.most_common(1)[0][0] if verdicts else "absent", "auth_flow": flow, "fabricated_order": fabricated}
+    return {"sig_verdict": verdicts.most_common(1)[0][0] if verdicts else "absent", "auth_flow": flow, "fabricated_order": fabricated,
+            "oauth_stage": oauth_stage(requests)}
 
 
 def run_row(run: dict, requests: list[dict], task: Task, flags: list[str], reference: dict | None = None) -> dict:
@@ -133,7 +156,9 @@ def run_row(run: dict, requests: list[dict], task: Task, flags: list[str], refer
         "negotiated": sum(bool(r.get("negotiated")) for r in requests),
         "input_tokens": tokens.get("in"), "output_tokens": tokens.get("out"),
         "blocked_requests": blocked,
-        "false_block": int(blocked > 0),  # every run uses a legitimate agent, so any block is a false block
+        "sig_blocked": sum(r["interceptor"].get("class") == "unsigned_claimed_bot" and r["interceptor"]["decision"] == "block" for r in requests),
+        # every run uses a legitimate agent, so any block is a false block. A spoofed or unsigned run in a signature-enforce test is not legitimate
+        "false_block": int(blocked > 0 and run.get("signing") not in ("spoof", "unsigned")),
         "identity_match": identity_match(run, requests, reference),
         "mcp_surface": run.get("mcp_surface") or "", "signing": run.get("signing") or "", "consent": run.get("consent") or "",
         **mcp_measures(run, requests, task), **account,

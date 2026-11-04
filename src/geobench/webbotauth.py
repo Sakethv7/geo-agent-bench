@@ -37,6 +37,13 @@ DIRECTORY_TIMEOUT = 2.0
 DIRECTORY_MAX_BYTES = 64_000
 CLOCK_SKEW = 60
 
+SIGNATURE_ONLY_TOKENS = ("geobench-local",)  # our own bot name. No address range can prove it, only a signature
+
+
+def claims_signature_only_bot(user_agent: str | None) -> bool:
+    return any(t in (user_agent or "").lower() for t in SIGNATURE_ONLY_TOKENS)
+
+
 VERDICTS = ("absent", "valid", "invalid", "expired", "unknown_key", "directory_unreachable")
 
 
@@ -88,6 +95,14 @@ def _agent_members(raw: str) -> dict[str, str]:
     return {"": legacy.group(1) if legacy else value}
 
 
+def _agent_member_serialization(raw: str, key: str) -> str:
+    """How RFC 9421 serializes one dictionary member for a covered component: the value with its parameters."""
+    for label, url, extra in re.findall(r'(\w+)="([^"]*)"((?:;\w+=[\w-]+)*)', raw.strip()):
+        if label == key and extra in ("", ";type=directory"):
+            return f'"{url}"{extra}'
+    return '""'
+
+
 def _signature_agent_value(raw: str, key: str | None = None) -> str:
     """The agent URL: the member named by key, else the first member."""
     members = _agent_members(raw)
@@ -106,7 +121,7 @@ def _base(components: list[Component], authority: str, method: str, path: str, a
     lines = []
     for name, key in components:
         if name == "signature-agent":
-            value = agent_header.strip() if key is None else f'"{_agent_members(agent_header).get(key, "")}"'
+            value = agent_header.strip() if key is None else _agent_member_serialization(agent_header, key)
         else:
             value = {"@authority": authority, "@method": method.upper(), "@path": path}[name]
         lines.append(f"{_component_id((name, key))}: {value}")
@@ -118,15 +133,15 @@ def _base(components: list[Component], authority: str, method: str, path: str, a
 def sign_headers(key: Ed25519PrivateKey, agent_url: str, authority: str, now: float | None = None, ttl: int = 300,
                  form: str = "url") -> dict[str, str]:
     """Headers for one request. form is url (working-group -01: the key-set URL), origin (-02: an origin with no
-    trailing slash) or legacy (the old quoted string)."""
+    trailing slash), origin_typed (-02 with the explicit type=directory parameter) or legacy (the old quoted string)."""
     created = int(now if now is not None else time.time())
     keyid = thumbprint(public_jwk(key)["x"])
     legacy = form == "legacy"
     if form == "url":
         agent_url = directory_url(agent_url)
-    elif form == "origin":
+    elif form in ("origin", "origin_typed"):
         agent_url = agent_url.rstrip("/")
-    agent_header = f'"{agent_url}"' if legacy else f'sig1="{agent_url}"'
+    agent_header = f'"{agent_url}"' if legacy else f'sig1="{agent_url}"' + (";type=directory" if form == "origin_typed" else "")
     params = f';created={created};expires={created + ttl};keyid="{keyid}";alg="ed25519";tag="{TAG}"'
     components: list[Component] = [("@authority", None), ("signature-agent", None if legacy else "sig1")]
     signature = key.sign(_base(components, authority, "GET", "", agent_header, params))

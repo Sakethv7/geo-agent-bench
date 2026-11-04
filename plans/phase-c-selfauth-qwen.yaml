@@ -1,0 +1,25 @@
+# Phase D, ADR-027: local Qwen runs OAuth by itself. consent x 3 reps on t07 = 6 runs.
+# Write results only to runs/phase-c-selfauth-qwen-runs.jsonl. The server may run in either signature policy: the harness signs validly.
+plan_id: phase-c-selfauth-qwen
+domain: wanderingcodersv.dev
+scheme: https
+host_mode: per_run
+variants: [account]
+consent: [granted, denied]
+agent_names: [qwen-oauth-self]
+tasks: [t07]
+reps: 3
+order_seed: 20261103
+quiet_gap_seconds: 35
+budget: {max_requests: 30, max_seconds: 600}
+pull_cmd: "gcloud compute scp instance-20261102-203604:/srv/geobench/runs/requests.jsonl runs/requests.jsonl --zone=us-central1-c --quiet"
+agents:
+  qwen-oauth-self:
+    kind: openai_oauth
+    base_url: http://localhost:8080/v1
+    model: qwen3-8b-q4_k_m
+    model_file: Qwen3-8B-Q4_K_M.gguf (Qwen/Qwen3-8B-GGUF, sha256 d98cdcbd03e17ce47681435b5150e34c1417f50b5c0019dd560e4882c5745785)
+    runtime: llama.cpp
+    server_args: "-m ~/models/Qwen3-8B-Q4_K_M.gguf --alias qwen3-8b-q4_k_m -c 32768 --cache-type-k q8_0 --cache-type-v q8_0 --jinja --port 8080"
+    temperature: 0.7
+    signature_agent: https://bot.wanderingcodersv.dev/

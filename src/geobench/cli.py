@@ -34,7 +34,8 @@ def cmd_serve(args: argparse.Namespace) -> int:
     directory_path = Path(args.directory)
     directory = json.loads(directory_path.read_text()) if directory_path.exists() else None
     app = make_app(Path(args.log), default_variant=args.default_variant, admin_ips=admin_ips,
-                   mode=args.mode, reference=load_reference(Path(args.identity)), domain=args.domain, directory=directory)
+                   mode=args.mode, reference=load_reference(Path(args.identity)), domain=args.domain, directory=directory,
+                   signature_policy=args.signature_policy)
     uvicorn.run(app, host=args.host, port=args.port, proxy_headers=False)
     return 0
 
@@ -153,6 +154,8 @@ def main() -> None:
     serve.add_argument("--domain", default=None, help="parent domain. Turns on run hosts: <token>.<variant>.<domain>")
     serve.add_argument("--mode", choices=["record", "enforce"], default="record")
     serve.add_argument("--identity", default="runs/identity_reference.json")
+    serve.add_argument("--signature-policy", choices=["record", "enforce"], default="record",
+                       help="enforce: 403 on the account host for our own bot name without a valid signature (ADR-026)")
     serve.add_argument("--directory", default="runs/bot_directory.json", help="Web Bot Auth key directory served on the bot host")
     serve.add_argument("--admin-ip", action="append", help="IP allowed to call /__health and /__time. Repeat for more.")
     serve.set_defaults(func=cmd_serve)
