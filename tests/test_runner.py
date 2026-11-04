@@ -359,3 +359,13 @@ def test_analyze_counts_requests_and_reads_robots():
     reqs = [req("2026-11-09T14:00:01.000Z", "/robots.txt", kind="robots"), req("2026-11-09T14:00:02.000Z", "/probe/a")]
     out = analyze(W, reqs, [[], []])
     assert out["requests"] == 1 and out["robots_read"] is True
+
+
+def test_pull_log_expands_environment_variables(monkeypatch):
+    import subprocess
+    from geobench import probe
+    seen = []
+    monkeypatch.setenv("GEOBENCH_VM", "my-vm")
+    monkeypatch.setattr(subprocess, "run", lambda args, check: seen.append(args))
+    probe.pull_log("gcloud compute scp $GEOBENCH_VM:/x y")
+    assert seen == [["gcloud", "compute", "scp", "my-vm:/x", "y"]]

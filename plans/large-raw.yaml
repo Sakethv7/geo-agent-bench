@@ -11,7 +11,7 @@ reps: 3
 order_seed: 20261104
 quiet_gap_seconds: 35
 budget: {max_requests: 60, max_seconds: 600}
-pull_cmd: "gcloud compute scp instance-20261102-203604:/srv/geobench/runs/requests.jsonl runs/requests.jsonl --zone=us-central1-c --quiet"   # no shell: split on spaces
+pull_cmd: "gcloud compute scp $GEOBENCH_VM:/srv/geobench/runs/requests.jsonl runs/requests.jsonl --zone=us-central1-c --quiet"   # no shell: split on spaces
 agents:
   claude-raw:
     kind: claude_tools

@@ -1,6 +1,6 @@
 # Architecture: geo-agent-bench, Experiment A
 
-Status: draft for approval. No code exists yet.
+Status: living document. ADR-001 to ADR-029 are approved and built, unless a section says otherwise. Results are in the README.
 
 ## Visual Level
 
@@ -226,10 +226,10 @@ Decision record: ADR-008 in [adr.md](adr.md). Level 3 (explainer flowchart) is s
 | Item | Value |
 |---|---|
 | Cloud project | `geo-agent-bench` (personal Google account) |
-| VM | `instance-20261102-203604`, `e2-micro` (x86, 1 GB memory), zone `us-central1-c`, Debian 13, 30 GB standard disk |
-| Address | `136.71.139.71`, reserved as `geobench-ip` |
+| VM | `$GEOBENCH_VM`, `e2-micro` (x86, 1 GB memory), zone `us-central1-c`, Debian 13, 30 GB standard disk |
+| Address | `<static-ip>`, reserved as `geobench-ip` |
 | Domain | `wanderingcodersv.dev`, registered at Cloudflare Registrar on 2026-11-02, expires 2027-11-02, auto-renew on |
-| DNS records | A `legacy` and A `ai`, both to `136.71.139.71`, proxy off ("DNS only") |
+| DNS records | A `legacy` and A `ai`, both to `<static-ip>`, proxy off ("DNS only") |
 | Budget | $1 a month, alerts only. There is no spend cap. |
 
 Nothing runs on the VM yet. Caddy and the test site are not installed.
@@ -306,11 +306,11 @@ Read in order. Each concept follows one request on its way to the site.
 
 **Registrar.** A registrar is a company that records that you own a name. You rent the name by the year. Cloudflare Registrar sold us the name. The renewal price is $12.20 a year.
 
-**IP address.** An IP address is the number that identifies a machine on the internet. Ours is `136.71.139.71`. Computers use numbers. People use names. DNS connects the two.
+**IP address.** An IP address is the number that identifies a machine on the internet. Ours is `<static-ip>`. Computers use numbers. People use names. DNS connects the two.
 
 **Static IP.** By default, Google can change the address of a VM when it restarts. We reserved the address (`geobench-ip`). Now the name always points to the same machine.
 
-**DNS (Domain Name System).** DNS is the public phone book that turns a name into an IP address. An agent asks "where is `legacy.wanderingcodersv.dev`?" and DNS answers `136.71.139.71`. DNS exists because addresses change and names do not.
+**DNS (Domain Name System).** DNS is the public phone book that turns a name into an IP address. An agent asks "where is `legacy.wanderingcodersv.dev`?" and DNS answers `<static-ip>`. DNS exists because addresses change and names do not.
 
 **DNS record and A record.** A DNS record is one line in the phone book. An A record says "this name points to this IPv4 address". We added two: `legacy` and `ai`. Cloudflare runs the name servers for our domain. The dashboard calls this "DNS Setup: Full".
 
@@ -424,7 +424,7 @@ Only `llms_read` shows a real gap, and `legacy` has no `llms.txt`. Identity matc
 
 # Addendum: Phases A, B and C (added 2026-11-03)
 
-Status: Phase A built, run and closed on 2026-11-03 (ADR-013 to ADR-017). Phase B and C designs follow and wait for approval.
+Status: Phase A built, run and closed on 2026-11-03 (ADR-013 to ADR-017). Phases B, C and D (ADR-018 to ADR-027) followed and are built.
 
 ## Visual Level
 
@@ -707,7 +707,7 @@ The three items that Phase C left untested are now tested. Interop with Cloudfla
 
 # Addendum: Phase E, a larger site (added 2026-11-04)
 
-Status: draft for approval. Decision: ADR-028. No code changes before you approve.
+Status: approved 2026-11-04, built, deployed and run. Decision: ADR-028.
 
 ## Visual Level
 
@@ -773,7 +773,7 @@ Caption: The system keeps its shape. The same process on the same VM now serves 
 ## Open questions (Phase E)
 
 1. The open questions of ADR-028 apply here. They cover names, `llms-full.txt`, task wording, certificates, repeats and the Stripe re-check.
-2. **Code against docs.** The status line at the top of this file says "draft for approval. No code exists yet." The code exists and ran four phases. I did not change that line, because you did not ask for it. I recommend a separate clean-up of the stale status lines in `architecture.md`, `adr.md` and the README.
+2. **Code against docs.** Resolved on 2026-11-04. The stale status lines in this file, `adr.md`, `api.md` and `logic_flow.md` now match the code.
 
 
 ## Addendum (Phase F): the OpenAI probe (ADR-029)

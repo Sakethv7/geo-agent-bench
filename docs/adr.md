@@ -1,6 +1,6 @@
 # Architecture Decision Records
 
-Status: draft for approval. Every ADR lists what we give up.
+Status: living document. Each ADR has its own status line. Every ADR lists what we give up.
 
 ## Visual Level
 
@@ -384,9 +384,9 @@ Level 3: skipped. This ADR picks a host and a name. It adds no new runtime flow.
 
 **Choice.**
 
-- Host: option 1. Project `geo-agent-bench`. VM in zone `us-central1-c`, `e2-micro` (x86, 1 GB memory), Debian 13, 30 GB standard disk, standard provisioning model. Reserved address `geobench-ip` = `136.71.139.71`. HTTP and HTTPS are open. A $1 monthly budget sends alerts. It does not cap spend. Before you chose, I leaned toward option 3 for stability. You chose option 1.
+- Host: option 1. Project `geo-agent-bench`. VM in zone `us-central1-c`, `e2-micro` (x86, 1 GB memory), Debian 13, 30 GB standard disk, standard provisioning model. Reserved address `geobench-ip` = `<static-ip>`. HTTP and HTTPS are open. A $1 monthly budget sends alerts. It does not cap spend. Before you chose, I leaned toward option 3 for stability. You chose option 1.
 - Domain: `wanderingcodersv.dev`, registered at Cloudflare Registrar on 2026-11-02. First year $8.20. Renewal $12.20 a year. Auto-renew is on. It expires 2027-11-02.
-- DNS: Cloudflare hosts the zone. Two A records, `legacy` and `ai`, point to `136.71.139.71`. The proxy is off. The Cloudflare features "AI Crawl Control" and "Agent Readiness" stay off.
+- DNS: Cloudflare hosts the zone. Two A records, `legacy` and `ai`, point to `<static-ip>`. The proxy is off. The Cloudflare features "AI Crawl Control" and "Agent Readiness" stay off.
 
 **Consequences.**
 
@@ -469,7 +469,7 @@ The shape is below. `api.md` changes after you approve.
 |---|---|
 | Run host | `<token>.<variant>.wanderingcodersv.dev`, for example `k7m2x9qa.legacy.wanderingcodersv.dev` |
 | Token | 8 random characters, a to z and 0 to 9. The runner checks that it is not in `runs.jsonl`. Random tokens make sure a re-run never repeats an old URL. |
-| DNS | One wildcard A record per variant: `*.legacy` and `*.ai`, both to `136.71.139.71`, DNS only. A wildcard does not match `legacy.wanderingcodersv.dev` itself, so the explicit records stay. |
+| DNS | One wildcard A record per variant: `*.legacy` and `*.ai`, both to `<static-ip>`, DNS only. A wildcard does not match `legacy.wanderingcodersv.dev` itself, so the explicit records stay. |
 | Certificates | One wildcard certificate per variant. Let's Encrypt issues a wildcard certificate only through the DNS-01 test. Caddy then needs a DNS plugin for Cloudflare, which is a custom Caddy build, and an API token. |
 | Server | Reads the variant and the token from the Host header. Writes `run_token` on every log line. |
 | Parser | Matches a request to the run with the same token. The time window from ADR-004 applies only to runs without a token (amended 2026-11-03: a scanner on the bare host landed in a run). A token that is in no run record means an unassigned request. |
@@ -750,7 +750,7 @@ Level 3 (explainer flowchart) for ADR-014 to ADR-017: [phase-a-run-flow.html](vi
 
 ## ADR-013: The study is a grid of 3 behaviors and 5 tiers, built in 3 phases
 
-Status: approved on 2026-11-03. Phase A is built and complete. Phases B and C are designed in ADR-018 to ADR-023, and wait for approval.
+Status: approved on 2026-11-03. Phase A is built and complete. Phases B and C (ADR-018 to ADR-023) were approved and built on 2026-11-03.
 
 ### Visual Level
 
@@ -1932,7 +1932,7 @@ Evidence: `reports/phase-c-selfauth-claude/`, `reports/phase-c-selfauth-qwen/`, 
 
 # Phase E: a larger site (added 2026-11-04)
 
-Status: draft for your approval. No code changes before you approve. ADR-028 only. The OpenAI agent and the Wilson intervals are separate changes with their own ADRs, later.
+Status: approved by you on 2026-11-04, built and run. ADR-028 only. The OpenAI probe is ADR-029. The OpenAI arm and the Wilson intervals are separate changes with their own ADRs, later.
 
 Level 3 (explainer flowchart) for ADR-028: [adr-028-large-site.html](visuals/adr-028-large-site.html).
 
@@ -1940,7 +1940,7 @@ Level 3 (explainer flowchart) for ADR-028: [adr-028-large-site.html](visuals/adr
 
 ## ADR-028: A large site of 101 short pages, in three new variants, `legacy-l`, `ai-l` and `geo-l`
 
-Status: approved by you on 2026-11-04 ("ok go for this"). Code and tests are built (184 tests pass). Not yet deployed or run. Differences from the draft are listed in `api.md`, "Built differently from the draft (Phase E)".
+Status: approved by you on 2026-11-04 ("ok go for this"). Built, deployed and run in dry runs on 2026-11-04. Differences from the draft are listed in `api.md`, "Built differently from the draft (Phase E)".
 
 ### Visual Level
 
@@ -2081,7 +2081,7 @@ Caption: The large site has the same company and the same kinds of facts as the 
 
 ## ADR-029: Probe OpenAI's hosted web search before any OpenAI benchmark arm
 
-Status: draft for your approval. No code before you approve. This ADR covers the probe only. A benchmark arm is a later ADR that depends on the probe result.
+Status: approved by you on 2026-11-04, built and run the same day (see "Observed in the probe" below). This ADR covers the probe only. A benchmark arm is a later ADR that depends on the probe result.
 
 ### Visual Level
 

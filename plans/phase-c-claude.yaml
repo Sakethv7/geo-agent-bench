@@ -11,7 +11,7 @@ reps: 6
 order_seed: 20261103
 quiet_gap_seconds: 35
 budget: {max_requests: 12, max_seconds: 300}
-pull_cmd: "gcloud compute scp instance-20261102-203604:/srv/geobench/runs/requests.jsonl runs/requests.jsonl --zone=us-central1-c --quiet"
+pull_cmd: "gcloud compute scp $GEOBENCH_VM:/srv/geobench/runs/requests.jsonl runs/requests.jsonl --zone=us-central1-c --quiet"
 agents:
   claude-vendor:
     kind: claude

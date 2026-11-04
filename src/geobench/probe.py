@@ -3,6 +3,7 @@ test site saw: the real user agent and source IP. Two prompts make two
 windows. A repeat of /probe/a in the second window that never reaches the
 server means the agent's fetch tool used a cache."""
 import json
+import os
 import subprocess
 import time
 from collections.abc import Callable
@@ -28,9 +29,10 @@ def ip_prefix(ip: str) -> str:
 
 
 def pull_log(cmd: str | None) -> None:
-    """Copy the request log from the host. cmd is an argument list as one string, run without a shell."""
+    """Copy the request log from the host. cmd is an argument list as one string, run without a shell.
+    $VARS in it come from the environment, so a plan names the VM as $GEOBENCH_VM and holds no real host name."""
     if cmd:
-        subprocess.run(cmd.split(), check=True)
+        subprocess.run(os.path.expandvars(cmd).split(), check=True)
 
 
 def analyze(windows: list[tuple[str, str]], requests: list[dict], claimed: list[list[str]]) -> dict:

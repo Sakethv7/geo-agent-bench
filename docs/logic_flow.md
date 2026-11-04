@@ -1,6 +1,6 @@
 # Logic Flow
 
-Status: draft for approval. This file lists the execution paths, state changes and failure behavior.
+Status: living document. This file lists the execution paths, state changes and failure behavior.
 
 ## Visual Level
 
@@ -184,7 +184,7 @@ Caption: Same loop as Experiment A, with a snapshot check in front and no server
 
 # Addendum: per-run host names (ADR-009, added 2026-11-02)
 
-Status: you approved the decision. These paths wait for your approval. No code changes before that.
+Status: approved 2026-11-02 and built (ADR-009).
 
 ## Visual Level
 
@@ -223,7 +223,7 @@ Level 3 (explainer flowchart with the steps of today and each failure path): [ad
 ## Setup changes (once)
 
 1. Create the Cloudflare token with the scope in `api.md` section 8. Store it on the VM in `/etc/caddy/cf.env`.
-2. Add two wildcard A records, `*.legacy` and `*.ai`, to `136.71.139.71`, DNS only.
+2. Add two wildcard A records, `*.legacy` and `*.ai`, to `<static-ip>`, DNS only.
 3. Install the Cloudflare module in Caddy. Replace the Caddyfile with the one in `api.md` section 8. Reload Caddy.
 4. Add `--domain wanderingcodersv.dev` to the server unit. Restart the service.
 5. From the admin IP, request `https://<any 8 characters>.legacy.wanderingcodersv.dev/__health`. The answer must be 200 with a valid certificate.
@@ -532,7 +532,7 @@ Failure behavior:
 
 # Addendum: Phase E execution paths, the large site (added 2026-11-04)
 
-Status: draft for approval. Decision: ADR-028. No code changes before you approve.
+Status: approved 2026-11-04, built and run. Decision: ADR-028.
 
 ## Visual Level
 

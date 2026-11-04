@@ -1,6 +1,6 @@
 # Interface Contracts
 
-Status: draft for approval. Python 3.12. Dataclasses, `httpx`, type hints on all signatures. Files are JSON Lines unless noted.
+Status: living document. Each section has its own status. Python 3.12. Dataclasses, `httpx`, type hints on all signatures. Files are JSON Lines unless noted.
 
 ## Visual Level
 
@@ -363,7 +363,7 @@ Exit codes follow section 7. Exit code 6 means every task was skipped as stale o
 
 # Addendum: per-run host names (ADR-009, added 2026-11-02)
 
-Status: approved as a decision in ADR-009. These contracts wait for your approval. No code changes before that.
+Status: approved 2026-11-02 and built (ADR-009).
 
 ## Visual Level
 
@@ -492,7 +492,7 @@ legacy.wanderingcodersv.dev, ai.wanderingcodersv.dev {
 }
 ```
 
-DNS: two wildcard A records, `*.legacy` and `*.ai`, to `136.71.139.71`, DNS only. The explicit records `legacy` and `ai` stay, because a wildcard does not match the bare variant host.
+DNS: two wildcard A records, `*.legacy` and `*.ai`, to `<static-ip>`, DNS only. The explicit records `legacy` and `ai` stay, because a wildcard does not match the bare variant host.
 
 The Cloudflare token:
 - Scope: Zone, DNS, Edit, and Zone, Zone, Read. Only the zone `wanderingcodersv.dev`. Nothing else. The Caddy module must look up the zone before it edits DNS, so it needs the read permission too. If Caddy fails with a zone lookup error, this is the likely cause.
@@ -706,7 +706,7 @@ Only the app changes. Copy the code and restart the service. The Caddy file, the
 
 # Addendum: Phase A contracts (added 2026-11-03)
 
-Status: draft for approval. Decisions: ADR-014 to ADR-017. Tests are promised before code.
+Status: approved 2026-11-03, built and run. Decisions: ADR-014 to ADR-017.
 
 ## Visual Level
 
@@ -1109,7 +1109,7 @@ Writes `identity.csv`: `claimed_identity, proof_level, requests, distinct_ips, f
 
 # Addendum: Phase E contracts, the large site (added 2026-11-04)
 
-Status: draft for approval. Decision: ADR-028. No code changes before you approve.
+Status: approved 2026-11-04, built and run. Decision: ADR-028.
 
 ## Visual Level
 
