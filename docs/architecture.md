@@ -693,3 +693,7 @@ Evidence: `reports/phase-b-claude/`, `reports/phase-b-qwen/`, `reports/phase-c/`
 ### Phase B follow-up: the retry arm (2026-11-03)
 
 With one retry on an empty reply (ADR-024), Qwen scored 18 of 18 on the Phase B cells, against 14 of 18 without it. The nudge was used 3 times and each use ended correct. Two other originally empty runs answered without it, so the sampling is not exactly repeatable. The arm used 47% more input tokens and 34% more run time, and obeyed the poisoned description in 2 runs instead of 1. Details are in the ADR-024 result note and in `reports/phase-b-qwen-retry/`.
+
+### Phase C follow-up: Claude on the protected page (2026-11-03)
+
+Claude with Anthropic's fetch tool, no sign-in path, 6 runs: all 6 said the page needs a sign-in and made up no order number. The tool hides the headers of a 401, so Claude never saw the sign-in link and requested none of the sign-in endpoints. This shows honesty at a refusal. It is not a test of OAuth and not a ranking against Qwen. Details are in the ADR-022 addendum and in `reports/phase-c-claude/`.
