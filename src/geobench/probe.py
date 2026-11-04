@@ -35,14 +35,18 @@ def pull_log(cmd: str | None) -> None:
 
 def analyze(windows: list[tuple[str, str]], requests: list[dict], claimed: list[list[str]]) -> dict:
     """windows are (start, end) in server time, one per prompt."""
-    hits = []
+    hits, bounds = [], []
     for start, end in windows:
         lo, hi = parse_ts(start), parse_ts(end) + timedelta(seconds=30)
+        bounds.append((lo, hi))
         hits.append([r for r in requests if r["kind"] == "probe" and lo <= parse_ts(r["ts"]) <= hi])
     all_hits = [r for window in hits for r in window]
     second_paths = {r["path"] for r in hits[1]}
     claimed_second_a = any(u.endswith("/probe/a") for u in claimed[1])
+    window_any = [[r for r in requests if lo_hi[0] <= parse_ts(r["ts"]) <= lo_hi[1]] for lo_hi in bounds]
     return {
+        "requests": len(all_hits),
+        "robots_read": any(r["path"] == "/robots.txt" for window in window_any for r in window),
         "fetch_observed": bool(all_hits),
         "user_agents": sorted({r["ua"] or "" for r in all_hits}),
         "ips": sorted({r["ip"] for r in all_hits}),

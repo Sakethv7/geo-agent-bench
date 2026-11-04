@@ -774,3 +774,33 @@ Caption: The system keeps its shape. The same process on the same VM now serves 
 
 1. The open questions of ADR-028 apply here. They cover names, `llms-full.txt`, task wording, certificates, repeats and the Stripe re-check.
 2. **Code against docs.** The status line at the top of this file says "draft for approval. No code exists yet." The code exists and ran four phases. I did not change that line, because you did not ask for it. I recommend a separate clean-up of the stale status lines in `architecture.md`, `adr.md` and the README.
+
+
+## Addendum (Phase F): the OpenAI probe (ADR-029)
+
+### Visual Level
+
+```mermaid
+flowchart TD
+    P[Probe plan with an openai_search agent]:::new
+    R[Runner makes a fresh run host]:::ext
+    O[OpenAI Responses API with web_search]:::new
+    S[Test site logs each request]:::ext
+    M[Probe report: who came, from where, cached or not]:::new
+    P --> R --> O --> S --> M
+    classDef new fill:#cfe3ff,stroke:#1d4ed8,color:#111
+    classDef ext fill:#e5e7eb,stroke:#6b7280,color:#111
+```
+
+Caption: The probe reuses the runner, the per-run host and the site log. Only the agent adapter and the report are new. Blue is new. Grey exists today.
+
+**Tier.** Still a single-process tool on the laptop plus the one VM. The probe adds one adapter and no service. A bigger tier is not needed.
+
+**What changes.** One agent kind, `openai_search`, calls the OpenAI Responses API with `web_search` and `external_web_access: true`. The call runs on OpenAI's servers, as Claude's fetch does. The probe module (`probe.py`) already sends two prompts and reads the site log. It gets a report line for the OpenAI user agent and IP check against `identity_reference.json`. The reference file needs an `openai` entry from OpenAI's `chatgpt-user.json`. ADR-017 already says to download and save these lists.
+
+**Failure and tradeoff.** The hosted tool may answer without touching our site. Then the probe returns zero requests, and that is the finding. We cannot see inside OpenAI, so we cannot say why. The model may also refuse or fail, and we log the error.
+
+## Open questions (Phase F)
+
+1. The code does not yet hold an `openai` entry in the identity reference. I check OpenAI's file URLs at build time.
+2. The top status line of this file is stale, as noted in the Phase E open questions. I did not change it.

@@ -2077,3 +2077,79 @@ Caption: The large site has the same company and the same kinds of facts as the 
 **Against the hypotheses.** H5 (`geo-l` bytes at least 10 times lower than `legacy-l`) holds: about 9 times on these 6 tasks and 14 times over all runs. On the 6-task table the ratio is 8.9, so read H5 as "close to 10 times" there. H6 (tokens barely change for Claude's own tool) is **wrong**: `geo-l` used about one third of the `legacy-l` tokens. Likely cause: the fetch tool converts HTML to markdown itself but keeps the menus and footers, and the markdown has none. H7 (a spoofer gets HTML) holds in the hand test, not in a run. H4 (success stays near the top) holds for `geo-l` after the fix.
 
 **Limits.** One run per cell. The sample is 8 tasks. One run (`tl01`) took 112 s, which was not investigated. `ai-l` and `legacy-l` each missed one task on allowance, so the 6-task table leaves those out. Treat the table as a direction. `plans/large-1.yaml` (5 runs per cell) gives the interval.
+
+
+## ADR-029: Probe OpenAI's hosted web search before any OpenAI benchmark arm
+
+Status: draft for your approval. No code before you approve. This ADR covers the probe only. A benchmark arm is a later ADR that depends on the probe result.
+
+### Visual Level
+
+```mermaid
+flowchart TD
+    A[Pick a fresh run host]:::new
+    B[Ask an OpenAI model to read two probe pages with web search]:::new
+    C{Did requests reach our site?}:::new
+    D[Record user agent, IP and timing from our log]:::new
+    E{Is the IP in OpenAI's published range?}:::new
+    F[Ask again after a gap. Does a repeat page reach us?]:::new
+    G[Write the result. Decide the arm in a new ADR]:::new
+    H[Search tool answered from its index or cache. No live fetch]:::bad
+    I[Name it a finding. The arm needs our own fetch tool]:::bad
+    J[Model refused or the API failed. Log the error and stop]:::bad
+
+    A --> B --> C
+    C -- yes --> D --> E
+    C -- no --> H --> I --> G
+    B -. API error .-> J
+    E -- yes --> F --> G
+    E -- no --> G
+
+    classDef new fill:#cfe3ff,stroke:#1d4ed8,color:#111
+    classDef bad fill:#fecaca,stroke:#b91c1c,color:#111
+```
+
+Caption: The probe asks one OpenAI model to read two pages on a fresh host that only we know. Our own server log then shows whether OpenAI fetched them live, who fetched them, and whether a repeat was cached. Blue steps are new. Red steps are the paths where the hosted tool gives us no live traffic or the call fails. No grey steps appear, because no OpenAI step exists today. The small site and the large site are unchanged.
+
+**Context.** The original aim (user-original-vision) includes a second cloud agent from another vendor. Anthropic's tool fetches pages live. Our identity checks, our interceptor and our token counts all rely on seeing the request. OpenAI's Responses API has a `web_search` tool. Its docs say the tool can search, open a page and find text in a page. They say `external_web_access` defaults to true (live access), and that false means cache only. OpenAI's crawler page lists `ChatGPT-User` as a fetcher that runs when a user asks, with a published IP file. I have not tested any of this against our site. If the tool answers from an index, an arm would measure OpenAI's index, not our site.
+
+**Options.**
+
+| Option | What it gives | Cost |
+|---|---|---|
+| A. Probe only | One fact: does the hosted tool reach us, as whom | About 4 API calls, cents |
+| B. Full arm now | 60 to 120 runs | $10 or more, and a result that may be void |
+| C. GPT model with our own fetch tool | Same control as Qwen | A control, not a vendor result |
+
+**Choice.** A. Run the probe, then write a second ADR for the arm. This follows the pilot lesson: a dry run found the cause before the main run each time.
+
+**Consequences.** We learn the vendor behavior for cents. We add one adapter kind (`openai_search`) and one probe plan. We delay the arm by one approval.
+
+**Given up.** No benchmark number from OpenAI yet. If the probe shows no live fetch, the vendor arm may not exist, and only option C remains. Option C is a control, as the Qwen rows were.
+
+**Open points.** (1) Which model: I propose `gpt-5` class with reasoning low, because `web_search` is not supported with minimal reasoning. You confirm the exact ID at approval. (2) The key sits in `.env` as `OPENAI_API_KEY`. I never read it. (3) `ChatGPT-User` may ignore robots.txt, so the robots measure may read zero. (4) Level-3 explainer skipped: this is one short flow, and the chart above already shows every step and every failure path.
+
+### Observed in the probe (2026-11-04, `plans/probe-openai.yaml`, model `gpt-5-mini`)
+
+Status of the ADR: approved by you on 2026-11-04. The probe ran. The arm is a separate ADR.
+
+**Attempts.** The first three tries failed with HTTP 429 `credit_balance_exhausted` before any search ran. They show nothing about OpenAI's tool. After you added credit, one try had window 1 fail (the credit had not spread yet) and window 2 succeed. The next try worked in both windows. The table is the last try, host token `uca8azvz`.
+
+| Time (UTC) | Path | Who | Source IP in OpenAI's published file |
+|---|---|---|---|
+| 20:33:45 | `/probe/a` | `ChatGPT-User/1.0` | `9.129.50.216`, in `chatgpt-user.json` |
+| 20:34:10 | `/robots.txt` | `OAI-SearchBot/1.0` | `51.8.102.35`, in `searchbot.json` |
+| 20:34:24 | `/probe/b` | `ChatGPT-User/1.0` | `52.242.132.232`, in `chatgpt-user.json` |
+
+**What it shows.**
+1. The hosted tool fetches our site live, with `external_web_access` true. It names itself, and every source IP is in the file OpenAI publishes for that name. Our interceptor can verify it by the same method as Claude.
+2. The answer was correct in both windows (`PROBE-A-7Q2`, `PROBE-B-4K9`).
+3. A repeat of `/probe/a` in window 2, about 40 seconds after window 1, did not reach us. The answer came from a cache. The earlier try gave the same pattern in the other direction. This is one trial, so I call it "cache suspected", not proven. The host token keeps each run apart, as it does for Claude.
+4. `robots.txt` was read by `OAI-SearchBot`, not by `ChatGPT-User`. It was read after the first page fetch in the first try and before `/probe/b` in the last try. I do not know if it gates anything.
+5. The three fetches came from three IPs in two ranges. The pages reached us from different machines. A benchmark that matches by IP alone would fail. Matching by host token works.
+
+**Against the hypothesis of the ADR.** The risk was "no live fetch". It did not happen. The vendor arm is possible.
+
+**What is not shown.** One model, one probe, two windows. I did not test a deep site walk, how many pages the tool opens per question, whether it follows links it has not seen, or what it sees (HTML, markdown or text). Cost: three API calls reached the model, a few cents. I did not read the token usage.
+
+**Next (separate ADR).** The arm on the large site. Questions for it: does `open_page` follow unseen URLs, how does it treat the `geo-l` markdown, what is the cost per run, and which model. The identity reference needs an `openai` entry built from the three published files, because the probe wrote only a `gpt-search` entry from observed values.

@@ -595,3 +595,37 @@ Caption: The run loop is the one of ADR-009. The new steps are the pre-check on 
 
 1. **Budget.** The pilot used 40 requests and 600 seconds. The large site may need more. I propose 60 requests and 600 seconds, and I read the dry run before the main run.
 2. **Quiet gap.** I keep 35 seconds between runs. The parser tail is 30 seconds. Do you want a shorter gap for this run? It saves about 45 minutes over 80 runs. I recommend no change.
+
+
+## Phase F flow: the OpenAI probe (ADR-029)
+
+### Visual Level
+
+```mermaid
+flowchart TD
+    A[Make fresh host and token]:::new
+    B[Send prompt 1: read probe page a]:::new
+    C{API answered?}:::new
+    D[Wait the quiet gap]:::new
+    E[Send prompt 2: read pages a and b]:::new
+    F[Read site log for the token]:::new
+    G{Any request logged?}:::new
+    H[Report user agent, IP, repeats, robots reads]:::new
+    I[Report: no live fetch seen]:::bad
+    J[Record the API error. No retry]:::bad
+    A --> B --> C
+    C -- yes --> D --> E --> F --> G
+    C -- no --> J
+    G -- yes --> H
+    G -- no --> I
+    classDef new fill:#cfe3ff,stroke:#1d4ed8,color:#111
+    classDef bad fill:#fecaca,stroke:#b91c1c,color:#111
+```
+
+Caption: Two prompts make two time windows. A page in window 1 that does not appear again in window 2 means a cache. Blue steps are new. Red steps end the probe without a live fetch.
+
+**Steps.** The flow matches the Claude probe in `probe.py`. The runner makes the host. Prompt 1 asks for the code on `/probe/a`. After the quiet gap (35 s), prompt 2 asks for the codes on `/probe/a` and `/probe/b`. The report reads the site log for the token and lists each request with user agent, IP, the identity verdict and the time.
+
+**States.** `ok` (requests seen), `no_fetch` (call worked, zero requests), `error` (API failure). `no_fetch` is a result, not an error.
+
+**Failure.** The API call does not retry. A retry would add a second window and spoil the cache test. A rate limit or a refusal ends the probe with `error` and the message.

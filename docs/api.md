@@ -1331,3 +1331,44 @@ Draft task kinds (the answer for each is printed from the fact table at build ti
 ### Change to the `geo-l` markdown (2026-11-04, after the first dry run)
 
 The page object for `/products` on `geo-l` is still the HTML page. The markdown body for a verified agent sits in the site map under the key `md:<path>`. The key is not a URL, so no request reaches it. `interceptor_twin` returns that body. The handler then rewrites every `](/` to `](https://<host>/`, with the request host, so each link is absolute. The links point to HTML paths. `GET /products.md` and `GET /index.md` on `geo-l` return 404 for everyone. The `ai-l` twins are unchanged (relative `.md` links, URL `<path>.md`).
+
+
+## Phase F: the `openai_search` agent and probe report (ADR-029)
+
+### Visual Level
+
+```mermaid
+flowchart TD
+    A[Plan names kind openai_search]:::new
+    B[make_agent builds the adapter]:::new
+    C[Adapter calls POST /v1/responses with tools web_search]:::new
+    D[Result: text, usage tokens, claimed URLs]:::new
+    E{Call failed?}:::new
+    F[Raise AgentError with the message]:::bad
+    A --> B --> C --> E
+    E -- no --> D
+    E -- yes --> F
+    classDef new fill:#cfe3ff,stroke:#1d4ed8,color:#111
+    classDef bad fill:#fecaca,stroke:#b91c1c,color:#111
+```
+
+Caption: The new adapter has the same signature as every other agent. It returns an `AgentResult` or raises `AgentError`. Blue is new. Red is the failure path.
+
+**Plan entry.**
+
+```yaml
+agents:
+  gpt-search:
+    kind: openai_search
+    model: gpt-5   # placeholder in plans/probe-openai.yaml. Confirm the exact id before the first call
+    reasoning_effort: low
+    external_web_access: true
+```
+
+**Adapter.** `openai_search_agent(cfg, http=None) -> Agent`. It reads `OPENAI_API_KEY` from the environment and uses `httpx`, not an SDK. It posts to `/v1/responses` with `tools: [{"type": "web_search", "external_web_access": <cfg>}]`. `AgentResult.text` is the output text. `api_tokens` is the `usage` object. `claimed_fetches` lists URLs from `open_page` actions in the output. Errors raise `AgentError`. A missing key raises `AgentError("OPENAI_API_KEY not set")` before any call.
+
+**Invariants.** Budget `max_requests` does not apply to a hosted tool, so the plan sets `max_seconds` only. The key is never logged or written to a run record.
+
+**Probe report fields.** Built: `requests` (probe-page hits) and `robots_read` are new. `user_agents`, `ips` and `cache_suspected` already existed and cover the draft's `repeat_in_window_2`. There is no `identity_verdicts` field. Instead the probe writes the observed user agent and IP prefix into `identity_reference.json` under the agent name, as it did for Claude. All fields come from our log, none from OpenAI.
+
+**Reference file.** `identity_reference.json` gains `"openai": {"tokens": ["ChatGPT-User", "OAI-SearchBot", "GPTBot"], "cidrs": [...], "source": "<url>"}`, built from OpenAI's published files (shape already given in the Phase A section of this file).

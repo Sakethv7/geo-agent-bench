@@ -197,3 +197,42 @@ def test_claude_refusal_message_carries_the_category_when_the_api_gives_one():
     with pytest.raises(AgentError) as e:
         run(FakeClient([response("refusal", [])]))
     assert str(e.value) == "refusal"
+
+
+def search_client(payload, seen, status=200):
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen.append((str(request.url), request.headers.get("authorization"), json.loads(request.content)))
+        return httpx.Response(status, json=payload)
+    return httpx.Client(transport=httpx.MockTransport(handler))
+
+
+def test_openai_search_reads_text_urls_and_tokens(monkeypatch):
+    from geobench.agents import openai_search_agent
+    monkeypatch.setenv("OPENAI_API_KEY", "sk-test")
+    seen = []
+    payload = {"output": [{"type": "web_search_call", "action": {"type": "search", "query": "x"}},
+                          {"type": "web_search_call", "action": {"type": "open_page", "url": "https://h.test/probe/a"}},
+                          {"type": "message", "content": [{"type": "output_text", "text": "ANSWER: 7"}]}],
+               "usage": {"input_tokens": 100, "output_tokens": 20}}
+    agent = openai_search_agent({"kind": "openai_search", "model": "m"}, search_client(payload, seen))
+    result = agent("What is the code?", "https://h.test/", None, Budget())
+    assert result.text == "ANSWER: 7" and result.claimed_fetches == ["https://h.test/probe/a"] and result.api_tokens == {"in": 100, "out": 20}
+    url, auth, body = seen[0]
+    assert url.endswith("/v1/responses") and auth == "Bearer sk-test"
+    assert body["tools"] == [{"type": "web_search", "external_web_access": True}] and body["reasoning"] == {"effort": "low"}
+
+
+def test_openai_search_errors_hide_the_key(monkeypatch):
+    from geobench.agents import openai_search_agent
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    agent = openai_search_agent({"kind": "openai_search", "model": "m"}, search_client({}, []))
+    with pytest.raises(AgentError, match="not set"):
+        agent("q", "https://h.test/", None, Budget())
+    monkeypatch.setenv("OPENAI_API_KEY", "sk-secret")
+    with pytest.raises(AgentError) as e:
+        openai_search_agent({"kind": "openai_search", "model": "m"}, search_client({}, [], status=429))("q", "https://h.test/", None, Budget())
+    assert "sk-secret" not in str(e.value)
+
+
+def test_describe_openai_search():
+    assert describe({"kind": "openai_search", "model": "m"})["runtime"] == "openai-api"

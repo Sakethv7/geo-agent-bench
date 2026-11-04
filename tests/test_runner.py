@@ -353,3 +353,9 @@ def test_local_precheck_stops_when_the_model_is_missing_or_the_server_is_down():
     down = httpx.Client(transport=httpx.MockTransport(lambda r: (_ for _ in ()).throw(httpx.ConnectError("refused"))))
     with pytest.raises(RunnerStop, match="failed the check"):
         local_precheck(down, LOCAL_CFG)
+
+
+def test_analyze_counts_requests_and_reads_robots():
+    reqs = [req("2026-11-09T14:00:01.000Z", "/robots.txt", kind="robots"), req("2026-11-09T14:00:02.000Z", "/probe/a")]
+    out = analyze(W, reqs, [[], []])
+    assert out["requests"] == 1 and out["robots_read"] is True

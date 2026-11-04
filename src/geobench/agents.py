@@ -9,6 +9,7 @@ tool, so the fetching is ours. "claude_tools" runs Claude with the same fetch_ur
 as a client tool, so Claude and the local model read the same raw text (ADR-015).
 """
 import json
+import os
 import re
 import time
 from collections.abc import Callable
@@ -635,8 +636,41 @@ def claude_mcp_agent(cfg: dict, client: anthropic.Anthropic | None = None) -> Ag
     return run
 
 
+def openai_search_agent(cfg: dict, http: httpx.Client | None = None) -> Agent:
+    """OpenAI's hosted web_search tool (ADR-029). The call runs on OpenAI's servers, so we see the fetch only in our own site log.
+    No retry: a second call would add a time window and spoil the cache test."""
+    http = http or httpx.Client()
+
+    def run(question: str, start_url: str, seed: int | None, budget: Budget) -> AgentResult:
+        key = os.environ.get("OPENAI_API_KEY")
+        if not key:
+            raise AgentError("OPENAI_API_KEY not set")
+        body = {
+            "model": cfg["model"],
+            "input": PROMPT.format(start_url=start_url, question=question),
+            "tools": [{"type": "web_search", "external_web_access": cfg.get("external_web_access", True)}],
+            "reasoning": {"effort": cfg.get("reasoning_effort", "low")},
+        }
+        try:
+            r = http.post("https://api.openai.com/v1/responses", json=body, headers={"Authorization": f"Bearer {key}"}, timeout=budget.max_seconds)
+            r.raise_for_status()
+        except httpx.TimeoutException as e:
+            raise BudgetExceeded("max_seconds") from e
+        except httpx.HTTPError as e:
+            detail = e.response.text[:300] if isinstance(e, httpx.HTTPStatusError) else ""
+            raise AgentError(f"{type(e).__name__}: {e} {detail}".replace(key, "***")) from e
+        data = r.json()
+        items = data.get("output", [])
+        text = "".join(c.get("text", "") for i in items if i.get("type") == "message" for c in i.get("content", []) if c.get("type") == "output_text")
+        urls = [i["action"]["url"] for i in items if i.get("type") == "web_search_call" and i.get("action", {}).get("type") == "open_page" and i["action"].get("url")]
+        usage = data.get("usage") or {}
+        return AgentResult(text, {"in": usage.get("input_tokens", 0), "out": usage.get("output_tokens", 0)}, 0, urls)
+
+    return run
+
+
 KINDS = {"claude": claude_agent, "claude_tools": claude_tools_agent, "claude_mcp": claude_mcp_agent, "claude_oauth": claude_oauth_agent,
-         "openai_compat": openai_compat_agent, "openai_mcp": openai_mcp_agent, "openai_oauth": openai_oauth_agent}
+         "openai_compat": openai_compat_agent, "openai_search": openai_search_agent, "openai_mcp": openai_mcp_agent, "openai_oauth": openai_oauth_agent}
 
 
 def make_agent(cfg: dict) -> Agent:
@@ -650,6 +684,9 @@ def describe(cfg: dict) -> dict:
     if cfg["kind"] == "claude_tools":
         return {"agent_version": cfg["model"], "model_file": None, "runtime": "anthropic-api",
                 "harness": {"obey_robots": cfg.get("obey_robots", False), "user_agent": LOCAL_UA, "temperature": None}}
+    if cfg["kind"] == "openai_search":
+        return {"agent_version": cfg["model"], "model_file": None, "runtime": "openai-api",
+                "harness": {"tool": "web_search", "external_web_access": cfg.get("external_web_access", True), "reasoning_effort": cfg.get("reasoning_effort", "low"), "temperature": None}}
     if cfg["kind"] == "claude_oauth":
         return {"agent_version": cfg["model"], "model_file": None, "runtime": "anthropic-api",
                 "harness": {"tools": [n for n, _, _ in OAUTH_TOOL_DEFS], "user_agent": LOCAL_UA, "signature_draft": DRAFT, "temperature": None}}

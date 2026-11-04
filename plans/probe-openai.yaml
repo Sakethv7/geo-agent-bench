@@ -1,0 +1,19 @@
+# ADR-029: probe OpenAI's hosted web_search before any benchmark arm. Used only by `geobench probe --agent gpt-search`.
+plan_id: probe-openai
+domain: wanderingcodersv.dev
+scheme: https
+host_mode: per_run
+variants: [legacy]
+agent_names: [gpt-search]
+tasks: [t01]
+reps: 1
+order_seed: 20261104
+quiet_gap_seconds: 35
+budget: {max_requests: 20, max_seconds: 300}
+pull_cmd: "gcloud compute scp instance-20261102-203604:/srv/geobench/runs/requests.jsonl runs/requests.jsonl --zone=us-central1-c --quiet"
+agents:
+  gpt-search:
+    kind: openai_search
+    model: gpt-5-mini     # cheapest model I expect to support web_search with reasoning. Check the id in your OpenAI dashboard.
+    reasoning_effort: low
+    external_web_access: true
