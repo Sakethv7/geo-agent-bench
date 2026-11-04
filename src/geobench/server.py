@@ -14,6 +14,7 @@ from starlette.responses import JSONResponse, PlainTextResponse, Response
 from starlette.routing import Route
 
 from geobench.content import BUILDERS, ORDERS_PATH, Page, build_site, orders_html, twin_path
+from geobench.content_large import GEO_L
 from geobench.interceptor import Decision, RequestInfo, decide
 from geobench.mcp import SURFACES, handle_message
 from geobench.oauth import OAuthServer, load_user_secret
@@ -46,6 +47,19 @@ def negotiated_twin(site: dict[str, Page], variant: str, path: str, accept: str)
     if page is None or page.kind != "page" or not page.content_type.startswith("text/html"):
         return None
     return site.get(twin_path(path))
+
+
+def interceptor_twin(site: dict[str, Page], variant: str, path: str, method: str, decision: Decision, verdict) -> Page | None:
+    """On geo-l, a verified agent (reference match, or a valid signature) gets the markdown twin at the page URL (ADR-028).
+    Anyone else, including a spoofer, gets the normal HTML."""
+    if variant != GEO_L or method not in ("GET", "HEAD"):
+        return None
+    page = site.get(path)
+    if page is None or page.kind != "page" or not page.content_type.startswith("text/html"):
+        return None
+    if decision.klass != "verified_agent" and not (verdict is not None and verdict.verdict == "valid"):
+        return None
+    return site.get("md:" + path)
 
 
 def resolve_host(host: str, domain: str | None, default_variant: str | None) -> tuple[str, str | None] | None:
@@ -202,7 +216,18 @@ def make_app(
         elif twin is not None:
             response = Response(twin.body, media_type=twin.content_type, headers={"Vary": "Accept"})
         else:
-            response = Response(page.body, media_type=page.content_type, headers={"Vary": "Accept"} if variant == "ai" else None)
+            try:
+                geo_twin = interceptor_twin(sites[variant], variant, path, request.method, decision, verdict)
+            except Exception as e:  # the interceptor never changes the status code. It falls back to HTML.
+                geo_twin = None
+                extra["interceptor_error"] = type(e).__name__
+            vary = {"Vary": "Accept"} if variant == "ai" else {"Vary": "User-Agent"} if variant == GEO_L else None
+            if geo_twin:  # absolute links: a fetch tool that follows only URLs it has seen cannot use a relative one
+                geo_twin = Page(geo_twin.kind, geo_twin.body.replace("](/", f"](https://{host.lower()}/"), geo_twin.content_type)
+            response = Response(geo_twin.body, media_type=geo_twin.content_type, headers=vary) if geo_twin else Response(page.body, media_type=page.content_type, headers=vary)
+            if geo_twin:
+                extra["served"] = "interceptor_md"
+        extra.setdefault("served", "twin" if response.status_code == 200 and (response.media_type or "").startswith("text/markdown") else "html")
         log(request, variant, run_token, response.status_code, len(response.body), kind, decision, twin is not None and response.status_code == 200, extra)
         return response
 

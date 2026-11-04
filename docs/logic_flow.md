@@ -526,3 +526,72 @@ Failure behavior:
 
 1. **Three connector errors in a row stop the batch.** I chose 3 to avoid spending money on a broken setup. Tell me if you want a different limit.
 2. **Quiet gap.** 35 seconds was set for Claude's fetch tool (ADR-009). The MCP connector may need none, because a new host per run already separates runs. I keep 35 seconds until the dry run shows it is unneeded.
+
+
+---
+
+# Addendum: Phase E execution paths, the large site (added 2026-11-04)
+
+Status: draft for approval. Decision: ADR-028. No code changes before you approve.
+
+## Visual Level
+
+```mermaid
+flowchart TD
+    A[Runner mints a token and checks the large-site host]:::ext
+    B{Does the pre-check pass?}:::new
+    C[Stop the batch and print the reason]:::bad
+    D[Agent asks for a page]:::ext
+    E{Which variant?}:::new
+    F[legacy-l or ai-l: site sends HTML, or the twin if asked]:::ext
+    G{geo-l: is the visitor a verified agent?}:::new
+    H[Site sends compact markdown at the same URL]:::new
+    I[Site sends the normal HTML]:::ext
+    J[Agent reads, answers, or runs out of budget]:::ext
+    K[Parser matches by token and metrics compute the new measures]:::new
+
+    A --> B
+    B -- no --> C
+    B -- yes --> D --> E
+    E -- legacy-l or ai-l --> F --> J
+    E -- geo-l --> G
+    G -- yes --> H --> J
+    G -- no, a spoofer or a stranger --> I --> J
+    J --> K
+
+    classDef new fill:#cfe3ff,stroke:#1d4ed8,color:#111
+    classDef ext fill:#e5e7eb,stroke:#6b7280,color:#111
+    classDef bad fill:#fecaca,stroke:#b91c1c,color:#111
+```
+
+Caption: The run loop is the one of ADR-009. The new steps are the pre-check on the large host, the check of the visitor on `geo-l`, and the new measures. Blue is new. Grey exists today. Red is a failure or wrong-page path.
+
+## One run on a large site
+
+1. **Pre-check.** The runner fetches `/robots.txt` and the home page on the run host. It expects 200 and a valid certificate with at least 14 days left. For `ai-l` it also fetches `/llms.txt` and `/index.md` and expects 200. For `geo-l` it checks that the home page answers 200 as HTML to the laptop, which is not a verified agent. Any other result stops the batch.
+2. **Start.** The agent gets the question and the URL of the home page. The prompt is the same as in the pilot.
+3. **Walk, jump or receive.** On `geo-l` the site checks the visitor on every request. A verified agent gets the markdown twin at the same URL. The agent does nothing special, and the log field `served` says `interceptor_md`. Anyone else gets HTML. On `legacy-l` the agent follows links. On `ai-l` the home page shows the pointer line. The agent may read `llms.txt` and then fetch a leaf page by its path, or fetch a markdown twin. Both ways end at a leaf page.
+4. **Decoys.** A decoy page is a normal page with a wrong answer. The site serves it with status 200 and logs it. The metric `offask_actions` does not count it. The new measure `decoy_hits` does. A new field in the task file, `answer_pages`, names the pages that hold the right answer. A fetch of a page that is neither in `min_set` nor in `answer_pages` counts toward the over-fetch ratio as before.
+5. **End.** The agent answers, or the budget stops it (60 requests or 600 seconds). The harness scores by exact match.
+6. **Measures.** The parser matches the log by run token. `steps_to_answer_page` counts page requests up to the first answer page. `index_fetches` counts requests for index pages. `decoy_hits` counts different decoy pages fetched.
+
+## Failure matrix
+
+| Failure | Result |
+|---|---|
+| Certificate for the large host expires or is missing | The pre-check fails. The batch stops. No run starts. |
+| Unknown token or unknown host | The site answers 421. The run record keeps the error. |
+| Agent asks for a path that does not exist (for example `/products/page/4`) | 404, logged. It counts as an off-path request. |
+| Agent never reaches an answer page | `steps_to_answer_page` is empty. `success` is 0 unless the answer is right by chance. |
+| Identity reference is stale (for example it lacks `160.79.104.0/21`) | A real Claude request counts as `ua_only` and gets HTML on `geo-l`. The run still works, but the interceptor shows no effect. The pre-check prints the reference range, and I update it before the dry run. |
+| A spoofer claims `Claude-User` from a wrong IP | Class `claimed_agent`. The site serves HTML. The log shows `served: html`. |
+| The interceptor raises an error | The site serves the normal HTML. An interceptor error never changes the status code. |
+| Fetch tool cache | Each run has its own host (ADR-009), so no cache can match. |
+| Site process restarts mid-run | Same as before: the run ends as `error: site_restarted` and the record is kept. |
+| Memory short on the VM | The batch stops at the pre-check. The fallback is lazy page building. |
+| Budget ends before an answer | The run is kept as incorrect, with the tokens and requests used so far. |
+
+## Open questions (Phase E flow)
+
+1. **Budget.** The pilot used 40 requests and 600 seconds. The large site may need more. I propose 60 requests and 600 seconds, and I read the dry run before the main run.
+2. **Quiet gap.** I keep 35 seconds between runs. The parser tail is 30 seconds. Do you want a shorter gap for this run? It saves about 45 minutes over 80 runs. I recommend no change.

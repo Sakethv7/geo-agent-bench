@@ -401,7 +401,7 @@ def _refusal(response) -> AgentError:
 
 def claude_tools_agent(cfg: dict, client: anthropic.Anthropic | None = None, http: httpx.Client | None = None) -> Agent:
     client = client or anthropic.Anthropic(max_retries=3)
-    http = http or httpx.Client()
+    http = http or (httpx.Client(auth=AccountAuth(cfg["signing"], "granted", cfg["signature_agent"], LOCAL_UA)) if cfg.get("signing") else httpx.Client())  # a signed arm is a verified agent to the geo-l interceptor (ADR-028)
     fn = FETCH_TOOL["function"]
     tools = [{"name": fn["name"], "description": fn["description"], "input_schema": fn["parameters"]}]
 

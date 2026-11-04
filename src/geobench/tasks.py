@@ -13,6 +13,8 @@ class Task:
     min_set: frozenset[str]
     kind: str
     mcp_min_calls: tuple = ()
+    answer_pages: frozenset[str] = frozenset()  # pages that hold the answer (ADR-028)
+    decoy_pages: frozenset[str] = frozenset()   # pages that look right and are wrong (ADR-028)
 
 
 def _flatten(entry: str | list[str]) -> list[str]:
@@ -32,6 +34,8 @@ def load_tasks(path: Path) -> dict[str, Task]:
             min_set=frozenset(p for e in row["min_set"] for p in _flatten(e)),
             kind=row["kind"],
             mcp_min_calls=tuple((c["tool"], tuple(sorted(c.get("args", {}).items()))) for c in row.get("mcp_min_calls", [])),
+            answer_pages=frozenset(row.get("answer_pages", [])),
+            decoy_pages=frozenset(row.get("decoy_pages", [])),
         )
     if sum(t.kind == "injection" for t in tasks.values()) != 1:
         raise ValueError("exactly one task must have kind: injection")

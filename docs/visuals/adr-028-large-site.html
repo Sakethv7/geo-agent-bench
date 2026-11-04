@@ -1,0 +1,103 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Large site run flow</title>
+<style>
+  :root {
+    --bg: #ffffff; --text: #111827; --line: #4b5563;
+    --grey-fill: #e5e7eb; --grey-stroke: #6b7280;
+    --blue-fill: #cfe3ff; --blue-stroke: #1d4ed8;
+    --red-fill: #fecaca; --red-stroke: #b91c1c;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #111827; --text: #f3f4f6; --line: #9ca3af;
+      --grey-fill: #374151; --grey-stroke: #9ca3af;
+      --blue-fill: #1e3a8a; --blue-stroke: #93c5fd;
+      --red-fill: #7f1d1d; --red-stroke: #fca5a5;
+    }
+  }
+  :root[data-theme="dark"] {
+    --bg: #111827; --text: #f3f4f6; --line: #9ca3af;
+    --grey-fill: #374151; --grey-stroke: #9ca3af;
+    --blue-fill: #1e3a8a; --blue-stroke: #93c5fd;
+    --red-fill: #7f1d1d; --red-stroke: #fca5a5;
+  }
+  body { margin: 0; padding: 12px 16px; background: var(--bg); color: var(--text);
+         font: 14px/1.4 system-ui, sans-serif; }
+  h1 { font-size: 16px; margin: 0 0 4px; }
+  p { margin: 0 0 8px; max-width: 820px; }
+  svg { width: 100%; max-width: 760px; height: auto; display: block; }
+  .grey { fill: var(--grey-fill); stroke: var(--grey-stroke); stroke-width: 1.5; }
+  .blue { fill: var(--blue-fill); stroke: var(--blue-stroke); stroke-width: 1.5; }
+  .red  { fill: var(--red-fill);  stroke: var(--red-stroke);  stroke-width: 1.5; }
+  text { fill: var(--text); font: 12px system-ui, sans-serif; text-anchor: middle; dominant-baseline: central; }
+  .lbl { font-size: 11px; }
+  .edge { stroke: var(--line); stroke-width: 1.5; fill: none; marker-end: url(#arr); }
+  #arr path { fill: var(--line); }
+  .key { display: flex; gap: 16px; flex-wrap: wrap; margin-top: 6px; font-size: 12px; }
+  .key span::before { content: ""; display: inline-block; width: 12px; height: 12px; margin-right: 6px;
+                      vertical-align: -2px; border: 1.5px solid; }
+  .k-grey::before { background: var(--grey-fill); border-color: var(--grey-stroke); }
+  .k-blue::before { background: var(--blue-fill); border-color: var(--blue-stroke); }
+  .k-red::before  { background: var(--red-fill);  border-color: var(--red-stroke); }
+</style>
+</head>
+<body>
+<h1>One run on the large site, three variants (ADR-028)</h1>
+<p>Read from the top. Diamonds are questions. The same question reaches the page that holds the answer in three ways. On <b>legacy-l</b> the agent walks the site. On <b>ai-l</b> it may use a shortcut. On <b>geo-l</b> the site checks who is asking and sends a verified agent markdown, so the agent chooses nothing.</p>
+<div class="key"><span class="k-grey">exists today</span><span class="k-blue">new or changed</span><span class="k-red">failure path</span></div>
+<svg viewBox="0 0 840 640" role="img" aria-label="Large site run flow with three variants">
+  <defs>
+    <marker id="arr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto">
+      <path d="M0,0 L10,5 L0,10 z"/>
+    </marker>
+  </defs>
+
+  <rect class="grey" x="240" y="14" width="240" height="44" rx="4"/>
+  <text x="360" y="29">Agent gets a question and</text><text x="360" y="45">the home page URL</text>
+
+  <polygon class="blue" points="360,78 480,106 360,134 240,106"/>
+  <text x="360" y="106">Which variant?</text>
+
+  <rect class="blue" x="10" y="186" width="210" height="52" rx="4"/>
+  <text x="115" y="199">ai-l: jump by llms.txt</text><text x="115" y="213">or a twin, if the agent</text><text x="115" y="227">finds it</text>
+  <rect class="grey" x="520" y="186" width="220" height="52" rx="4"/>
+  <text x="630" y="205">legacy-l: walk index pages</text><text x="630" y="221">and list pages 2 and 3</text>
+
+  <polygon class="blue" points="360,160 480,190 360,220 240,190"/>
+  <text x="360" y="184">geo-l: verified</text><text x="360" y="198">agent?</text>
+
+  <rect class="blue" x="240" y="262" width="240" height="44" rx="4"/>
+  <text x="360" y="277">geo-l: the site sends compact</text><text x="360" y="293">markdown at the same URL</text>
+
+  <rect class="grey" x="240" y="350" width="240" height="44" rx="4"/>
+  <text x="360" y="372">Read the leaf page</text>
+
+  <polygon class="blue" points="360,412 480,440 360,468 240,440"/>
+  <text x="360" y="434">Wrong page</text><text x="360" y="448">opened?</text>
+  <rect class="red" x="530" y="416" width="270" height="48" rx="4"/>
+  <text x="665" y="431">Log it. A decoy counts in decoy_hits.</text><text x="665" y="449">A missing page gives 404.</text>
+
+  <rect class="blue" x="240" y="520" width="240" height="60" rx="4"/>
+  <text x="360" y="535">Score the answer. Count steps,</text><text x="360" y="551">tokens, bytes and decoy hits</text><text x="360" y="567">(compare the three variants)</text>
+
+  <path class="edge" d="M360,58 L360,78"/>
+  <path class="edge" d="M240,106 L115,106 L115,186"/><text class="lbl" x="170" y="98">ai-l</text>
+  <path class="edge" d="M480,106 L630,106 L630,186"/><text class="lbl" x="550" y="98">legacy-l</text>
+  <path class="edge" d="M360,134 L360,160"/><text class="lbl" x="392" y="150">geo-l</text>
+  <path class="edge" d="M360,220 L360,262"/><text class="lbl" x="376" y="240">yes</text>
+  <path class="edge" d="M480,190 L500,190 L500,212 L520,212"/><text class="lbl" x="502" y="180">no</text>
+  <path class="edge" d="M115,238 L115,330 L360,330 L360,350"/>
+  <path class="edge" d="M630,238 L630,330 L360,330"/>
+  <path class="edge" d="M360,306 L360,350"/>
+  <path class="edge" d="M360,394 L360,412"/>
+  <path class="edge" d="M480,440 L530,440"/><text class="lbl" x="505" y="430">yes</text>
+  <path class="edge" d="M360,468 L360,520"/><text class="lbl" x="376" y="492">no</text>
+  <path class="edge" d="M665,464 L665,550 L480,550"/>
+</svg>
+<p>The "no" branch of the geo-l question is a spoofer or a stranger. It gets normal HTML, so a fake user agent from a wrong IP gains nothing.</p>
+</body>
+</html>

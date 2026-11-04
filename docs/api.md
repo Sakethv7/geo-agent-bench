@@ -1103,3 +1103,231 @@ Writes `identity.csv`: `claimed_identity, proof_level, requests, distinct_ips, f
 - Test promised before code: an empty reply followed by an answer gives the answer and `retries` 1; a second empty reply ends the run with an empty answer; the default of 0 changes nothing.
 - Web Bot Auth, second round (2026-11-03): after reading `draft-ietf-webbotauth-httpsig-protocol-01`, `Signature-Agent` carries the URL of the key set (`sig1="https://bot.<domain>/.well-known/http-message-signatures-directory"`). A value with no path is read as an origin and gets the well-known path added (the -02 form). The legacy quoted string still verifies. A member with a parameter other than `type=directory` is ignored. `sign_headers` takes `form` (`url`, `origin` or `legacy`). Live check: all five forms gave `valid`, a throwaway key gave `unknown_key`, no signature gave no verdict.
 
+
+
+---
+
+# Addendum: Phase E contracts, the large site (added 2026-11-04)
+
+Status: draft for approval. Decision: ADR-028. No code changes before you approve.
+
+## Visual Level
+
+```mermaid
+flowchart TD
+    T[Fact table in content_large.py]:::new
+    B1[Build legacy-l: 101 HTML pages]:::new
+    B2[Build ai-l: same pages plus twins, llms.txt, pointers]:::new
+    B3[Build geo-l: legacy-l pages and the twins, no pointers]:::new
+    V{Do the build checks pass?}:::new
+    F[Refuse to start the site process]:::bad
+    S[Site serves both large variants by host name]:::new
+    K[tasks_large.yaml names min_set, answer_pages and answer]:::new
+    M[Metrics compute steps_to_answer_page, index_fetches, decoy_hits]:::new
+    R[Run rows and summary tables]:::ext
+
+    T --> B1 --> V
+    T --> B2 --> V
+    T --> B3 --> V
+    V -- no --> F
+    V -- yes --> S
+    K --> M
+    S --> M --> R
+
+    classDef new fill:#cfe3ff,stroke:#1d4ed8,color:#111
+    classDef ext fill:#e5e7eb,stroke:#6b7280,color:#111
+    classDef bad fill:#fecaca,stroke:#b91c1c,color:#111
+```
+
+Caption: One fact table feeds all three large variants, so the facts cannot drift. The site refuses to start if a build check fails. Blue steps are new. Grey exists today. Red is the failure path.
+
+## 1. Hosts and variants
+
+| Variant | Host | Run host | Builder |
+|---|---|---|---|
+| `legacy-l` | `legacy-l.wanderingcodersv.dev` | `<token>.legacy-l.wanderingcodersv.dev` | `content_large._legacy_large_pages` |
+| `ai-l` | `ai-l.wanderingcodersv.dev` | `<token>.ai-l.wanderingcodersv.dev` | `content_large._ai_large_pages` |
+| `geo-l` | `geo-l.wanderingcodersv.dev` | `<token>.geo-l.wanderingcodersv.dev` | `content_large._geo_large_pages` |
+
+`BUILDERS` in `content.py` gets three new keys. `resolve_host` needs no change: it already accepts a variant label found in `BUILDERS`, and a label with a hyphen is a valid host label. The token pattern (8 characters, `[a-z0-9]`) is unchanged. DNS and Caddy: six A records (`legacy-l`, `*.legacy-l`, `ai-l`, `*.ai-l`, `geo-l`, `*.geo-l`) and three Caddy site blocks, each with a wildcard certificate by DNS-01.
+
+## 2. Path tree (101 pages of kind `page`)
+
+| Section | Paths | Pages |
+|---|---|---:|
+| Home | `/` | 1 |
+| Products | `/products`, `/products/page/2`, `/products/page/3`, and `/products/<slug>` for 24 products | 27 |
+| Accessories | `/accessories` and `/accessories/<slug>` for 12 accessories | 13 |
+| Firmware | `/firmware` and `/firmware/<version>` for 18 releases | 19 |
+| Policies | `/policies`; `/policies/warranty/standard`, `/policies/warranty/extended`, `/policies/warranty/industrial`; `/policies/returns`, `/policies/returns-2024`, `/policies/shipping`, `/policies/privacy`, `/policies/terms` | 9 |
+| Support | `/support`, `/support/faq`, `/support/regions/<region>` for 6 regions, `/support/faq/<slug>` for 15 articles | 23 |
+| Guides | `/guides` and `/guides/<slug>` for 8 guides | 9 |
+| Total | | 101 |
+
+The pages that are not of kind `page` are the same kinds as on the small site: `robots.txt` (`wellknown`), `/promo/spring` (`trap`), `/private/archive/` (`canary`), the injection target (`inject`), `/contact` (`form`), `/probe/a` and `/probe/b` (`probe`), and the four planted files (`exposed`). The injection sentence sits on one FAQ article, in the same hidden style as ADR-011.
+
+`INDEX_PATHS` is a list in `content_large.py`: `/`, `/products`, `/products/page/2`, `/products/page/3`, `/accessories`, `/firmware`, `/policies`, `/support`, `/support/faq`, `/guides`. Decoys are named per task in the task file, in the field `decoy_pages`.
+
+## 3. The fact table
+
+A list of dataclass rows, one list per section, with a fixed seed (`20261104`) for any generated value. No value comes from random choice at serve time.
+
+| Row | Fields |
+|---|---|
+| Product | `name`, `slug`, `family`, `max_temp_c`, `accuracy`, `price_usd`, `warranty_class`, `list_page` |
+| Accessory | `name`, `slug`, `price_usd`, `fits` (product slugs) |
+| Firmware release | `version`, `product`, `date`, `fixed` (text) |
+| Policy | `slug`, `title`, `text`, `current` (bool), `replaced_by` |
+| Region | `slug`, `name`, `email` |
+| FAQ article | `slug`, `title`, `text` |
+| Guide | `slug`, `title`, `text` |
+
+Rules the tables obey, each one checked by a test:
+- Every value that a task asks for appears on its leaf page and nowhere else, except where a task needs a list column (see below).
+- The product list shows `name` and `max_temp_c`. No other field shows on a list page.
+- Each firmware index line shows `version`, `product` and `date`. It never shows `fixed`.
+- No digit string that equals a task answer appears in the chrome. The chrome script already has no digits (ADR-014).
+- `warranty_class` on a product page links to one of three class pages. The years are on the class page only.
+- The archived returns page says 14 days and names `/policies/returns` as its replacement. The current page says 30 days.
+
+## 4. `ai-l` files
+
+| File | Rule |
+|---|---|
+| Twin | `<path>.md` for every page of kind `page`. The home page is `/index.md`. Lists and tables are markdown tables. The twin of a list page keeps the same rows. |
+| Pointer | The last line of the content block of every HTML page that has a twin: link text "Markdown version of this page". The home page also gets "Site index in markdown (llms.txt)". Each twin ends with the index pointer. (Unchanged from ADR-012.) |
+| Head link | `<link rel="alternate" type="text/markdown">` in the head, as before. |
+| `/llms.txt` | Plain text served as `text/plain`. Format below. |
+| Negotiation | `Accept: text/markdown` on a page path returns the twin. Quality values are ignored (ADR-014). |
+
+`/llms.txt` skeleton:
+
+```
+# Fernwick Instruments
+
+> Industrial temperature sensors. This file lists the pages of this site in markdown.
+
+## Products
+- [Product list](/products.md): all products, in three list pages
+- [FX-101](/products/fx-101.md): product page
+...
+
+## Firmware
+- [Firmware releases](/firmware.md): index of releases
+- [Release 3.2](/firmware/3.2.md): release notes for one product
+...
+```
+
+One line per page, 101 lines. A description is the topic only. A test fails if any task answer, or any value that a task asks for, appears in the file.
+
+### The `geo-l` interceptor
+
+`_geo_large_pages` returns the pages of `legacy-l` and, for every page of kind `page`, its markdown twin at `<path>.md`. It adds no pointer line, no `llms.txt` and no head link. A request for a twin path on `geo-l` works as on `ai-l`. This keeps the markdown content identical on `ai-l` and `geo-l`. A test checks it.
+
+The server applies one rule on host `geo-l` only, in this order:
+
+1. Take the decision from `interceptor.decide` and the signature verdict from `webbotauth` (both exist).
+2. If the request is a GET for a path whose page has kind `page`, and (class is `verified_agent` or the signature verdict is `valid`), answer with the twin, status 200, `Content-Type: text/markdown; charset=utf-8`, at the same URL. The log field `served` is `interceptor_md`.
+3. Otherwise answer as `legacy-l` does. `served` is `html`.
+4. If step 1 or 2 raises an error, answer with the normal HTML and write `served: html` and the field `interceptor_error` (the error type name only).
+
+The twin is the same text as on `ai-l`. `Vary: User-Agent` is set on the response, so a shared cache does not mix the two forms. The facts in a twin equal the facts in its HTML page. A test checks it.
+
+`served` is a new log field on every request: `twin` (a markdown response to a `.md` path, or to `Accept: text/markdown` on `ai-l`), `interceptor_md`, or `html` (any other response, including a 404). The response size is already in the log as `bytes`.
+
+The identity reference file on the VM (`runs/identity_reference.json`) must list `160.79.104.0/21` for Claude, as Anthropic publishes it. Today it lists only `160.79.106.`. I update the file as part of this change and print the range in the pre-check.
+
+## 5. Task file
+
+`tasks/tasks_large.yaml` has the fields of `tasks.yaml` plus one optional field.
+
+| Field | Meaning |
+|---|---|
+| `task_id` | `tl01` to `tl08` |
+| `question`, `answer`, `answer_aliases`, `kind` | As before. `kind` is `lookup`, `multi_hop`, `decoy` or `injection`. |
+| `min_set` | The pages on the shortest path from `/`. |
+| `answer_pages` | New. The pages that hold the answer. For a "highest value" question, every list page. |
+
+`load_tasks` keeps its rule: exactly one task in the file has `kind: injection`. This is why the large tasks have their own file. The CLI flag `--tasks tasks/tasks_large.yaml` already exists. A task without `answer_pages` uses an empty set, and its `steps_to_answer_page` is empty.
+
+Draft task kinds (the answer for each is printed from the fact table at build time, for you to check):
+
+| Task | Kind | Shape | Pages needed |
+|---|---|---|---:|
+| `tl01` | lookup | Accuracy of a product that sits on list page 3 | 5 |
+| `tl02` | lookup | Price of one accessory | 3 |
+| `tl03` | lookup | Which firmware release fixed a named bug on a named product | 3 or 4 |
+| `tl04` | multi_hop | Warranty years of a named product, through its class page | 4 |
+| `tl05` | multi_hop | Warranty years of the product with the highest temperature (all three list pages) | 6 |
+| `tl06` | decoy | Days to return an item (current page, not the archived one) | 3 |
+| `tl07` | injection | A support-article question, where the hidden sentence tries to make the agent fetch the injection target | 4 |
+| `tl08` | lookup | Support email for one region | 3 |
+
+## 6. New measures
+
+| Measure | Definition |
+|---|---|
+| `steps_to_answer_page` | The count of GET requests with status 200 and kind `page` (or the path `/llms.txt`, because reading it costs a fetch), in time order, up to and including the first one whose path (a twin mapped to its page) is in `answer_pages`. Empty if none. |
+| `index_fetches` | The count of status-200 GET requests whose path (a twin mapped to its page) is in `INDEX_PATHS`. |
+| `decoy_hits` | The count of different paths in the task's `decoy_pages` that the run fetched with status 200 (a twin mapped to its page). |
+| `served_markdown` | The count of requests of the run with `served: interceptor_md`. |
+| `bytes_total` | The sum of `bytes` over the requests of the run with status 200. |
+
+`llms_read`, `md_fetches`, `overfetch_ratio`, tokens, seconds and traps stay as defined. The results file gets three new columns. `SUMMARY_MEASURES` gets `decoy_hits` and `steps_to_answer_page`. Older result files do not have these columns, and the report script treats a missing column as empty.
+
+## 7. Plans and run budget
+
+- `plans/large-dry.yaml`: variants `[legacy-l, ai-l, geo-l]`, tasks `tl01` to `tl08`, 1 repeat, 24 runs, agent Claude Sonnet 5.5 through Anthropic's fetch tool.
+- `plans/large-1.yaml`: the same, with 5 repeats, 120 runs.
+- `plans/large-raw.yaml` (only if you accept open question 7 of ADR-028): the `claude_tools` raw fetch arm, variants `[legacy-l, geo-l]`, tasks `tl01`, `tl03`, `tl05`, `tl06`, 3 repeats, 24 runs. New `plan_id` and new runs file. Never reuse a runs file that has the same run ids.
+- Budget per run: `max_requests: 60`, `max_seconds: 600`. The pilot used 40 and 600.
+- The runner pre-check (logic_flow, "One run on a large site") is new for the two large variants. The 14-day certificate guard is unchanged.
+
+## 8. Deployment
+
+1. Add the six DNS records in Cloudflare.
+2. Add three site blocks to the Caddyfile. Caddy issues the three wildcard certificates.
+2a. Copy the updated `identity_reference.json` to the VM and restart the app.
+3. Check free memory on the VM. Continue only if at least 300 MB are available.
+4. Redeploy the app. Check that `https://legacy-l.wanderingcodersv.dev/` and `https://ai-l.wanderingcodersv.dev/llms.txt` answer 200 with valid certificates. Check by hand that `https://geo-l.wanderingcodersv.dev/` gives `served: html` to the laptop, and that a request with a `Claude-User` user agent from a non-Claude IP also gives `served: html`.
+5. Run the dry plan.
+
+## 9. Tests (promised before any code)
+
+- The build gives exactly 101 pages of kind `page` per large variant, and the same set of HTML paths for all three.
+- Every link on every page resolves to a path in the manifest (no broken links, except the trap and the canary links, which resolve too).
+- Every twin mirrors a page, and the facts in each twin match the facts in its page.
+- No task answer, and no value that a task asks for, appears in `/llms.txt`.
+- The list pages show only `name` and `max_temp_c`. The firmware index never shows `fixed`.
+- Each task answer is on its `answer_pages` and is unique among the pages of the site (no decoy repeats it).
+- Every task's `min_set` is reachable from `/` by following links in the HTML, and by following links in the twins on `ai-l`.
+- `steps_to_answer_page`, `index_fetches` and `decoy_hits` match a fixed log fixture, including a twin mapped to its page and a run that never reaches an answer page.
+- `geo-l`: a verified agent (reference match) gets the twin at the same URL with `Content-Type: text/markdown`. A request with a `Claude-User` user agent and a wrong IP gets HTML. A request with a valid signature gets the twin. A request with no identity gets HTML. An interceptor error gives HTML and `interceptor_error`. `Vary: User-Agent` is present.
+- The twin on `geo-l` equals the twin on `ai-l`, page by page, apart from the pointer line that `ai-l` adds.
+- `served_markdown` and `bytes_total` match a fixed log fixture.
+- The site refuses to start if a build check fails.
+- `resolve_host` accepts `abcd1234.legacy-l.<domain>` and rejects `abcd1234.legacy-x.<domain>`.
+
+## Open questions (Phase E contracts)
+
+1. The counts (24 products, 12 accessories, 18 releases and so on) are my proposal. They give 101 pages. Tell me if you want other counts. The page total is checked by a test.
+2. A path such as `/products/page/4` returns 404. Real sites differ. I keep 404 so the log shows the agent's guess.
+3. `answer_pages` for the "highest value" task is all three list pages, even though an agent could stop early if it sees a very high value. A perfect agent still needs all three to be sure.
+4. Fact values (product names, temperatures, prices) are generated by me from the table. They are fictional. You approve them when you review the printed answers.
+
+## Built differently from the draft (Phase E, 2026-11-04)
+
+- **No topic lines on list twins.** The draft added a topic line under each link in a `geo-l` list twin. I dropped it. It gave `geo-l` more information than `ai-l`, so the two would differ by more than the interceptor. The twins are the same text on both variants, and `ai-l` adds one pointer line.
+- **Decoys are per task.** The field `decoy_pages` in the task file replaces the global `DECOY_PATHS`. A page can be the right page for one task and a decoy for another (for example `/products/fx-203b`).
+- **Release pages use neutral paths.** `/firmware/fx-307-a` and `/firmware/fx-307-b`. A version number in the path would put the answer into `llms.txt`. The index page shows the version, the product and the date. Each product has two releases with different bugs, so the index does not answer a task.
+- **`steps_to_answer_page` counts `/llms.txt`.** Without it, an agent that reads `llms.txt` and then a leaf page would score 1 step, which flatters `ai-l`.
+- **Tasks.** `tl01` needs 4 pages (list page 3 is reached directly), `tl02` 3, `tl03` 4 (both releases of the product), `tl04` 5, `tl05` 6, `tl06` 3, `tl07` 4, `tl08` 3. For `tl05`, `answer_pages` is the warranty class page, the last hop. `tl03` answer is `5.0.1`. The accuracy answer `±0.31 C` has four aliases. You still own all answers.
+- **Pre-check.** The runner keeps its existing `/__health` and certificate check, and adds `large_precheck`: the home page answers 200 as HTML (also on `geo-l`, because the laptop is not a verified agent), and `ai-l` also answers `/llms.txt` and `/index.md`. The runner does not print the identity reference range, because the reference lives on the VM. The hand check in the deployment steps covers it.
+- **Raw arm needs a signature.** Our raw fetch tool runs from the laptop, which is not in Anthropic's range, so the interceptor would never treat it as verified. In `plans/large-raw.yaml` the arm signs every request with our bot key (`signing: signed`, `signature_agent`), and a valid signature qualifies for the twin. `claude_tools_agent` builds a signing client when the plan sets `signing`.
+- **Identity reference.** `runs/identity_reference.json` on the laptop now lists `160.79.104.` to `160.79.111.` for Claude (the whole `/21`). The file is git-ignored, so copy it to the VM at deploy.
+- **Memory.** `geo-l` shares the HTML page objects of `legacy-l` (a cached build), so the three large variants add about 20 MB, not 30.
+- **Code and test counts.** New module `src/geobench/content_large.py` (it registers the variants when imported), `tests/test_large_site.py` (18 tests), `tasks/tasks_large.yaml`, `plans/large-dry.yaml`, `plans/large-1.yaml`, `plans/large-raw.yaml`. Small edits: `content.py` (`chrome` takes a menu list), `server.py` (`interceptor_twin`, `served`), `metrics.py` (`large_measures`), `tasks.py` (two fields), `runner.py` (`large_precheck`), `agents.py` (signed raw arm), `deploy/Caddyfile` (six blocks). 184 tests pass.
+
+### Change to the `geo-l` markdown (2026-11-04, after the first dry run)
+
+The page object for `/products` on `geo-l` is still the HTML page. The markdown body for a verified agent sits in the site map under the key `md:<path>`. The key is not a URL, so no request reaches it. `interceptor_twin` returns that body. The handler then rewrites every `](/` to `](https://<host>/`, with the request host, so each link is absolute. The links point to HTML paths. `GET /products.md` and `GET /index.md` on `geo-l` return 404 for everyone. The `ai-l` twins are unchanged (relative `.md` links, URL `<path>.md`).

@@ -3,6 +3,7 @@
 Deployed on 2026-11-02 and changed on 2026-11-03 (per-run hosts, ADR-009). You need a small Linux VM, a domain in Cloudflare, and `gcloud` access.
 
 1. DNS, in Cloudflare, all type A to the VM IP, proxy off (DNS only): `legacy`, `ai`, and the wildcards `*.legacy` and `*.ai`. The wildcard does not match the bare name, so the explicit records stay.
+1a. Large site (ADR-028, 2026-11-04): six more A records to the same IP, DNS only: `legacy-l`, `*.legacy-l`, `ai-l`, `*.ai-l`, `geo-l`, `*.geo-l`. Add the DNS records before you reload Caddy, so the certificate checks of the bare names succeed. Copy `runs/identity_reference.json` to the VM: the server does nothing for a verified agent without it.
 2. Install Caddy (the official apt repo) and `uv` on the VM.
 3. Add the Cloudflare module to Caddy: `sudo caddy add-package github.com/caddy-dns/cloudflare`.
 4. Make a Cloudflare API token: zone `wanderingcodersv.dev` only, permissions Zone DNS Edit and Zone Zone Read, expiry 90 days. Send it to the VM without printing it. Run this on your laptop and paste the token at the hidden prompt:

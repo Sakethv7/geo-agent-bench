@@ -13,6 +13,7 @@ from pathlib import Path
 import httpx
 
 from geobench.agents import LOCAL_KINDS, Agent, AgentError, Budget, BudgetExceeded, describe, make_agent
+from geobench.content_large import LARGE_VARIANTS
 from geobench.mcp import tools_for
 from geobench.metrics import final_answer
 from geobench.parse_logs import PAD, TAIL, load_jsonl, parse_ts
@@ -174,6 +175,21 @@ def mcp_precheck(http: httpx.Client, plan: dict, variant: str, surface: str, tok
             raise RunnerStop("the poisoned surface answers without a run token", 3)
 
 
+def large_precheck(http: httpx.Client, base: str, variant: str) -> None:
+    """Large site (ADR-028): the home page answers 200 as HTML. On ai-l the index and a twin answer too.
+    The laptop is not a verified agent, so geo-l must also answer HTML here."""
+    paths = ["/"] + (["/llms.txt", "/index.md"] if variant == "ai-l" else [])
+    for path in paths:
+        try:
+            response = http.get(f"{base}{path}")
+        except httpx.HTTPError as e:
+            raise RunnerStop(f"large site {base}{path} failed the check: {describe_failure(e)}", 3) from e
+        if response.status_code != 200:
+            raise RunnerStop(f"large site {base}{path} failed the check: status {response.status_code}", 3)
+        if path == "/" and not response.headers.get("content-type", "").startswith("text/html"):
+            raise RunnerStop(f"large site {base}/ did not answer HTML to the runner: {response.headers.get('content-type')}", 3)
+
+
 def account_precheck(http: httpx.Client, base: str) -> None:
     """Before a sign-in run: the protected page answers 401 with a discovery link to an unsigned request."""
     response = http.get(f"{base}/account/saved-orders")
@@ -196,6 +212,8 @@ def run_one(cell: dict, plan: dict, task: Task, agent: Agent, http: httpx.Client
         mcp_precheck(http, plan, cell["variant"], cell["surface"], token if per_run else None)
     if cell["variant"] == "account":
         account_precheck(http, base)
+    if cell["variant"] in LARGE_VARIANTS:
+        large_precheck(http, base, cell["variant"])
     offset, mode = server_clock(http, base)
     seed = cell["rep"] if cfg["kind"] in LOCAL_KINDS else None
     skew = timedelta(milliseconds=offset)

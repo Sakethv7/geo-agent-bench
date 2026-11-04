@@ -8,7 +8,8 @@ from what is served.
 Kinds: page, asset, wellknown, canary, inject, form, trap, probe, exposed, protected, mcp, oauth, directory.
 
 Variants: legacy is plain HTML. ai is the same site plus /llms.txt, a markdown twin of every page,
-and an alternate link in each HTML head (ADR-011).
+and an alternate link in each HTML head (ADR-011). The large variants (legacy-l, ai-l, geo-l, ADR-028) register
+themselves in BUILDERS when geobench.content_large is imported.
 
 Every HTML page of kind page sits inside about 100 KB of generated chrome (ADR-014). Both variants
 also carry planted exposed files with canary strings (ADR-016).
@@ -120,11 +121,11 @@ def _style(rng: random.Random, size: int) -> str:
     return "".join(parts)
 
 
-def _menu(rng: random.Random, size: int) -> str:
+def _menu(rng: random.Random, size: int, nav: list[str]) -> str:
     items: list[str] = []
     length = 0
     while length < size:
-        href = rng.choice(NAV_PATHS + ["#"] * 3)
+        href = rng.choice(nav + ["#"] * 3)
         item = f'<li class="nav-item"><a href="{href}">{_words(rng, 2).title()}</a></li>'
         items.append(item)
         length += len(item)
@@ -141,7 +142,7 @@ def _footer(rng: random.Random, size: int) -> str:
     return "".join(parts)
 
 
-def chrome(title: str, body_html: str, seed: int) -> str:
+def chrome(title: str, body_html: str, seed: int, nav: list[str] | None = None) -> str:
     """A full page of 90 to 110 KB. The content block starts near byte 40,000 (ADR-014, api.md Phase A section 1).
     The head script ends with a source map line, inside the first 60,000 characters that a raw fetch tool keeps."""
     rng = random.Random(seed)
@@ -154,7 +155,7 @@ def chrome(title: str, body_html: str, seed: int) -> str:
     banner = (
         "<body>\n<div id=\"cookie-banner\" role=\"dialog\"><p>We use cookies to improve your experience. "
         f"{_words(rng, 40).capitalize()}.</p><button>Accept all</button><button>Reject all</button></div>\n"
-        f"<header><nav>{_menu(rng, 9_000)}</nav></header>\n"
+        f"<header><nav>{_menu(rng, 9_000, nav or NAV_PATHS)}</nav></header>\n"
     )
     main = f"<main>\n<h1>{title}</h1>\n{body_html}\n</main>\n"
     tail = f"<footer>{_footer(rng, 12_000)}</footer>\n<script>{_script(rng, 48_000)}</script>\n</body></html>\n"

@@ -48,6 +48,41 @@ account.wanderingcodersv.dev {
 	reverse_proxy 127.0.0.1:8000
 }
 
+# Large site, three variants (ADR-028). Same pattern as the small variants.
+
+legacy-l.wanderingcodersv.dev {
+	reverse_proxy 127.0.0.1:8000
+}
+
+*.legacy-l.wanderingcodersv.dev {
+	tls {
+		dns cloudflare {env.CF_API_TOKEN}
+	}
+	reverse_proxy 127.0.0.1:8000
+}
+
+ai-l.wanderingcodersv.dev {
+	reverse_proxy 127.0.0.1:8000
+}
+
+*.ai-l.wanderingcodersv.dev {
+	tls {
+		dns cloudflare {env.CF_API_TOKEN}
+	}
+	reverse_proxy 127.0.0.1:8000
+}
+
+geo-l.wanderingcodersv.dev {
+	reverse_proxy 127.0.0.1:8000
+}
+
+*.geo-l.wanderingcodersv.dev {
+	tls {
+		dns cloudflare {env.CF_API_TOKEN}
+	}
+	reverse_proxy 127.0.0.1:8000
+}
+
 # Key directory for Web Bot Auth (ADR-021). One name, a normal certificate.
 bot.wanderingcodersv.dev {
 	reverse_proxy 127.0.0.1:8000

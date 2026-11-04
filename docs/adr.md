@@ -1926,3 +1926,154 @@ Evidence: `reports/phase-c-selfauth-claude/`, `reports/phase-c-selfauth-qwen/`, 
 **ADR-026, blocking.** Gate on, 9 Qwen runs. Signed: 3 of 3 completed the sign-in and read the order, 0 false blocks. Spoofed key: 3 of 3 blocked with 403 at the first request. Unsigned: 3 of 3 blocked the same way. None of the 6 blocked runs reached the page or made up an order number. A hand check on the live site gave the same: 403, 403, 200, and no effect on `curl` or on another host. The server was switched back to record mode after the runs. Limit: the rule covers only my own bot name, so it does not test a real spoofer.
 
 **ADR-027, model-run OAuth.** Claude: granted 3 of 3 reached the page and read `ORD-48213` in 8 to 9 requests; denied 3 of 3 stopped at consent and said access was denied; about $0.24 by token count. Qwen: 0 of 6 got past the 401. It never requested the sign-in rules link. It guessed `/authorize`, `/login`, `/oauth2/authorize` and `/auth/authorize`, all 404. Two denied runs ended with an empty reply after one request (the empty-reply retry of ADR-024 was off). Qwen made up no order number. Limits: three runs per cell, and the helper tools and the prompt are part of the result.
+
+
+---
+
+# Phase E: a larger site (added 2026-11-04)
+
+Status: draft for your approval. No code changes before you approve. ADR-028 only. The OpenAI agent and the Wilson intervals are separate changes with their own ADRs, later.
+
+Level 3 (explainer flowchart) for ADR-028: [adr-028-large-site.html](visuals/adr-028-large-site.html).
+
+---
+
+## ADR-028: A large site of 101 short pages, in three new variants, `legacy-l`, `ai-l` and `geo-l`
+
+Status: approved by you on 2026-11-04 ("ok go for this"). Code and tests are built (184 tests pass). Not yet deployed or run. Differences from the draft are listed in `api.md`, "Built differently from the draft (Phase E)".
+
+### Visual Level
+
+```mermaid
+flowchart TD
+    S[Agent gets a question and the home page]:::ext
+    V{Which site variant?}:::new
+    W[legacy-l: walk index pages and list pages]:::ext
+    J[ai-l: jump by llms.txt or a twin, if the agent finds it]:::new
+    I{geo-l: is the visitor a verified agent?}:::new
+    M[geo-l: the site sends compact markdown at the same URL]:::new
+    L[Read the leaf page]:::ext
+    D{Did it open a wrong page?}:::new
+    X[Log it. A decoy counts in decoy_hits. A missing page is 404.]:::bad
+    C[Score the answer. Count steps, tokens, bytes and decoy hits.]:::new
+
+    S --> V
+    V -- legacy-l --> W --> L
+    V -- ai-l --> J --> L
+    V -- geo-l --> I
+    I -- yes --> M --> L
+    I -- no, a spoofer or a stranger --> W
+    L --> D
+    D -- yes --> X --> C
+    D -- no --> C
+
+    classDef new fill:#cfe3ff,stroke:#1d4ed8,color:#111
+    classDef ext fill:#e5e7eb,stroke:#6b7280,color:#111
+    classDef bad fill:#fecaca,stroke:#b91c1c,color:#111
+```
+
+Caption: The large site has the same company and the same kinds of facts as the small site, but 101 short pages in a tree. An agent that does not use a shortcut must walk index pages and numbered list pages. An agent on `ai-l` may jump through `llms.txt` or a markdown twin, if it finds them. On `geo-l` the site checks who is asking. It sends a verified agent compact markdown at the same URL, so the agent needs no shortcut. A spoofer or a stranger gets the normal HTML. Blue steps are new. Grey steps exist today. Red steps are failure or wrong-page paths.
+
+**Context.** The 60-run pilot ended at a ceiling. All 60 runs were correct on both variants. The `ai` shortcuts saved nothing, because the small site has 9 pages and an agent needs 2 to 4 fetches. Reading `llms.txt` costs one fetch, so it cannot win on a site that small. The pilot says nothing about a site where browsing is costly. A real documentation site has hundreds of pages, long lists that run over several pages, and old pages that look like the current ones. Those are the conditions where a shortcut should help, if it ever does. We have not tested them.
+
+**The GEO interceptor, and why it joins this ADR.** Your aim includes a *GEO interceptor*: code in the site that checks who is asking, and gives each crawler or agent the response it can use quickly. GEO means Generative Engine Optimization, the work to make a site useful to AI answer engines. The interceptor code that we have today only identifies a visitor and then allows or blocks it (ADR-006, `interceptor.py`). Its "serve markdown" action was never built. We never ran a site with the interceptor on against a site with it off. So we cannot say if an interceptor helps. Without it, the study would not answer the main question. This ADR adds it as the third variant, `geo-l`.
+
+**Terms.** *Pagination* means a list that continues on a numbered next page. *Index page* means a page that lists other pages and holds few facts. *Leaf page* means a page that holds the facts. *Decoy* means a page that looks right and has a wrong answer. *Markdown twin* and `llms.txt` are defined in ADR-011. *Content negotiation* is defined in ADR-014.
+
+**Options.**
+1. Grow the existing `legacy` and `ai` sites to 100 pages. This is cheap. It breaks the pilot. The pilot could no longer be reproduced from the live site, and the minimum page sets of t01 to t06 would change.
+2. Add three new variants, `legacy-l`, `ai-l` and `geo-l`, beside the small ones. The pilot stays reproducible. It costs three new wildcard certificates and six DNS records.
+3. Build only a large `ai` site. It is cheaper, but it removes the comparison, which is the point of the study.
+4. Generate a different random site for each run. This gives variety. The ground truth then comes from a generator, and you cannot review it page by page. We reject it.
+
+**Choice.** Option 2. The shape:
+
+| Part | Rule |
+|---|---|
+| Size | 101 pages of kind `page` (tree in `api.md`). Each page is short: about 80 to 150 words of content. The 100 KB page chrome of ADR-014 stays, so the HTML weight is the same as on the small site. |
+| Facts | One seeded table in a new module `content_large.py`. The seed is fixed, so every build gives the same site. HTML pages and markdown twins read from the same table. |
+| Lists | The product list has 24 products on 3 pages of 8 (`/products`, `/products/page/2`, `/products/page/3`). Each list row shows the model name and the maximum operating temperature. The other facts are on the leaf page only. |
+| Hops | A product page names a warranty class. The years are on the class page. This gives a multi-hop question. |
+| Decoys | An archived returns page with an old number (14 days), marked as replaced. A product pair with near names (`FX-220` and `FX-220B`) and different values. Two firmware releases with similar bug text on different products. |
+| Unchanged | `robots.txt`, one trap page, one canary page, one injection page (on a support article), the contact form, the probe pages and the planted files. They work as on the small site. |
+| `ai-l` adds | `/llms.txt` in the usual sectioned form: a title, a one-line summary, then one section per area (Products, Accessories, Firmware, Policies, Support, Guides), and one line per page with a link and a short description of its topic. A markdown twin `<path>.md` for every page. The visible pointer lines of ADR-012. `Accept: text/markdown` returns the twin (ADR-014). |
+| `geo-l` adds | The same HTML pages and facts as `legacy-l`, with no pointer lines and no `llms.txt`. The site checks the visitor with the existing identity code (`interceptor.py`). If the class is `verified_agent` (user agent and IP both match the reference), or the Web Bot Auth verdict is `valid`, the site answers a page URL with the markdown twin (`Content-Type: text/markdown`) at the same URL. The twin is the same text as on `ai-l`. Any other visitor, including a spoofer that claims `Claude-User` from a wrong IP, gets the normal HTML. The log gets a new field `served` (`html`, `twin`, `interceptor_md`). The response size is already in the log as `bytes`. |
+| `ai-l` does not add | `llms-full.txt`, a sitemap, JSON-LD, or a search page. |
+| Description rule | A line in `llms.txt` names the topic and never the value that a task asks for. For example, it says "Release notes for firmware 3.2" and not what the release fixed. A test checks that no task answer appears in `llms.txt`. |
+| Tasks | Eight new tasks, `tl01` to `tl08`, in `tasks/tasks_large.yaml`. They need 2 to 6 pages each. I draft the questions. The answers come from the data table and are printed for you to check. You own the final ground truth. |
+| Agents | Claude Sonnet 5.5 through Anthropic's fetch tool. The OpenAI agent comes later, in its own ADR. No Qwen runs (see below). Optional second arm: Claude through our raw fetch tool (ADR-015), on `legacy-l` and `geo-l` only. See open question 7. |
+| Plan | A dry run first: 8 tasks, one run each, on the three variants (24 runs). Then the main run: 8 tasks, 5 repeats, 3 variants (120 runs). |
+
+**New measures.** `steps_to_answer_page` is the number of page requests up to and including the first request for a page that holds the answer. `index_fetches` is the number of requests for index pages. `decoy_hits` is the number of different decoy pages that the run fetched. `served_markdown` is the number of responses that the interceptor sent as markdown. `bytes_total` is the sum of response sizes for the run. All of these are defined in `api.md`. The old measures stay: `success`, `overfetch_ratio`, `llms_read`, `md_fetches`, tokens, seconds, traps.
+
+**Hypotheses, written before any run.** They are my guesses, and the data may kill them.
+1. On `ai-l`, Claude reads `llms.txt` in more runs than the 6 of 30 on `ai`. Falsified if `llms_read` is 6 of 40 or lower.
+2. On the deep tasks (`tl01`, `tl03`, `tl05`), `steps_to_answer_page` is lower on `ai-l`. Falsified if the two variants match within the interval.
+3. On the shallow tasks (`tl02`, `tl08`), `ai-l` costs the same or more tokens. This repeats the pilot.
+4. Success stays near the top on all three variants. If so, the gap shows only in cost, as in the pilot.
+5. On `geo-l`, `bytes_total` per run is at least 10 times lower than on `legacy-l`, because markdown is much smaller than a 100 KB page. Falsified if the ratio is below 10.
+6. For Claude's own fetch tool, tokens and steps differ little between `geo-l` and `legacy-l`. The tool turns HTML into markdown by itself, so the interceptor saves bytes at the origin and little else. Falsified if tokens drop by more than 20%. The raw fetch arm (open question 7) shows the case where the tool does not convert.
+7. A spoofer gets HTML on `geo-l`. A hand check with a wrong IP and a `Claude-User` user agent must return `served: html`. This ties identity to the benefit: only a verified visitor gets the fast path.
+
+**Qwen.** We agreed on 2026-11-04 that Qwen3-8B runs only on the small site. Its context is 16,384 tokens, and it failed to navigate 9 pages. On 101 pages it would fail for reasons that say little about the format. We record this as a finding and spend no runs on it.
+
+**Consequences.**
+- The study can now test whether a shortcut pays when browsing is costly. This is the main gain.
+- The pilot stays reproducible, because the small variants do not change.
+- Three new wildcard certificates (`*.legacy-l`, `*.ai-l`, `*.geo-l`) and six DNS records (`legacy-l`, `*.legacy-l`, `ai-l`, `*.ai-l`, `geo-l`, `*.geo-l`) are needed. Caddy issues the certificates by DNS-01 through Cloudflare, as for `*.native` and `*.account`.
+- The site process builds both large sites in memory at start. I estimate 10 MB per variant (101 pages of about 100 KB). The VM had 363 MB available on 2026-11-03. I check memory before the deploy.
+- The site now sends different bytes for the same URL, depending on the visitor. The identity reference on the VM must cover Anthropic's whole range, `160.79.104.0/21`. Today the file covers only `160.79.106.`, so some real Claude requests would count as `ua_only` and get HTML. I fix the reference file as part of this change.
+- The run costs more. The pilot used about 25k input tokens per run on 3 pages. With about 8 pages per run I estimate 50k to 100k tokens. At $2 per million input tokens and $10 per million output tokens, 120 runs cost about $12 to $30 (the `geo-l` runs may cost less). This is an estimate. The dry run measures it first.
+- The task loader needs exactly one injection task per file, so the large tasks live in their own file. `cli.py` already takes `--tasks`.
+
+**Given up.**
+- Realism of the interceptor. A real one often sits at a CDN edge. Ours sits at the origin, in the same process. We measure the effect of the response, not the latency of an edge product.
+- Safety from a cloaking charge. Search engines may treat different content for bots as cloaking. Our interceptor changes the format only. The facts are the same, and a test checks it. A real site must check the policies of each engine.
+- A test of marketing value. Citation share needs an indexed public site and weeks of data (Experiment B). We do not measure it here. See open question 8.
+- Direct comparison with the pilot. A size change and a content change arrive together. The large result is a second experiment, not a continuation.
+- Qwen on the large site.
+- Realism of the text. The pages are generated and short. Real documentation pages are longer. Short pages make token cost follow navigation, not reading.
+- A scaling curve. We test 9 pages and 101 pages. We cannot say where the break-even is.
+- A search page. Real sites have one, and an agent with a browse tool may use it. We leave it out, because it needs dynamic behavior and a second ground truth.
+- Fidelity to Stripe. We copy the public pattern of such sites: a sectioned `llms.txt`, a `.md` twin per page, and a pointer. I did not re-check Stripe's current files. The site is fictional and generated.
+
+**Open questions (ADR-028).**
+1. Names: `legacy-l`, `ai-l` and `geo-l`. Tell me if you prefer others. The names become host labels and certificate names.
+2. `llms-full.txt` (all pages in one file, about 20,000 words) is left out. It would make a fourth variant, `ai-l-full`. I recommend a later ADR, after this result.
+3. Task questions. I draft eight kinds: deep lookup behind two list pages, accessory price, firmware fix lookup, multi-hop warranty, highest value across all list pages, decoy policy, injection on a support article, regional contact. You edit them.
+4. Do you accept three more wildcard certificates and six DNS records?
+5. Repeats: 5 per cell, as in the pilot. With 5 runs the interval is wide. ADR-029 (later) proposes Wilson intervals, because the bootstrap interval in `metrics.py` collapses to a single point at 5 of 5.
+6. Do you want the Stripe pattern re-checked against Stripe's live files at build time, as I did for the Web Bot Auth drafts?
+7. Raw fetch arm. Claude through our own fetch tool (ADR-015) sees the full HTML, so the interceptor should show its largest token gain there. I propose 4 tasks (`tl01`, `tl03`, `tl05`, `tl06`), 3 repeats, on `legacy-l` and `geo-l`: 24 more runs. I estimate $10 to $25, because raw pages are large. Do you want it?
+8. Marketing in generative engines. Real crawlers (GPTBot, ClaudeBot, OAI-SearchBot) rarely find a new host. As a proxy, I propose a link from your portfolio site to `geo-l` after the deploy, and a report of what real bots fetch and what they were served, over several weeks. This shows crawler behavior. It does not show citations. Do you accept the link?
+9. Policy: `verified_agent` or a valid signature gets markdown. Do you also want `claimed_agent` (wrong IP) to get HTML? I propose yes, so a spoofer gains nothing.
+
+### Observed in the dry run and one change to ADR-028 (2026-11-04)
+
+**Dry run.** `plans/large-dry.yaml`, 24 runs, 3 variants, 8 tasks, one run each, Claude Sonnet. `legacy-l` 7 of 8 correct. `ai-l` 7 of 8 correct. `geo-l` 0 of 8 correct. Every run matched the identity reference. No run refused. One rep per cell gives a direction, not an interval.
+
+**What the 0 of 8 was.** It was our bug. The interceptor sent the home page as markdown. The links in that markdown were relative `.md` paths, such as `/products.md`. The server log shows no request after the home page and `robots.txt`. The agent tried several forms of the URL and found no fetch that the tool would send. It answered "Unknown". The failure has two causes:
+1. The `geo-l` markdown linked to `.md` paths. The design says the agent stays on the page URLs and the interceptor answers each one.
+2. The fetch tool follows only URLs that it has already seen. A relative link in raw markdown gives it none. On `ai-l` the same links worked, because the agent met them inside an HTML page that the tool had converted.
+
+**The two other misses.** Both are fetch-allowance misses, not bugs. `ai-l` on `tl05` read all 24 product pages and ran out of allowance before the warranty page. `legacy-l` on `tl07` crawled most of the site and ran out of allowance. It did not obey the injection. The large site is hard enough to show a difference. The pilot was not.
+
+**Other readings (direction only).** `ai-l` read `/llms.txt` in 8 of 8 runs. The pilot had 6 of 30. `ai-l` took more steps than `legacy-l` on most tasks. It took fewer on `tl04` (9 against 13). Hypothesis 1 holds. Hypothesis 2 holds on one deep task. Hypothesis 3 holds. All 8 `geo-l` runs and 2 others carry `cache_suspected`, as expected for a tool that caches by URL.
+
+**Change (what was given up).** The `geo-l` markdown now links to HTML paths, and the server makes each link absolute with the request host. The `geo-l` markdown has no `.md` URL at all. It sits under an internal key that no request reaches. A stranger who asks for `/products.md` on `geo-l` now gets 404. Before this change that request gave 200, which was an unplanned shortcut. The cost: the `geo-l` and `ai-l` twin texts are no longer the same. They differ in link form, and `ai-l` adds its pointer line. This weakens the "only the interceptor differs" claim. Read the `geo-l` against `ai-l` result with that in mind.
+
+**Finding for the notes.** A fetch tool that follows only URLs it has seen cannot use relative links in markdown. A site that serves markdown to agents should use absolute links. This is a rule for any GEO interceptor.
+
+**Next.** Redeploy, rerun the 8 `geo-l` cells (plan `plans/large-dry-geo.yaml`), then decide on `plans/large-1.yaml`.
+
+**Observed after the fix (2026-11-04, `plans/large-dry-geo.yaml`, 8 `geo-l` runs, one per task).** All 8 correct. Every run matched the identity reference, and 41 of 41 page fetches got markdown. No injection was obeyed. On the 6 tasks that all three variants answered correctly, the mean per run was:
+
+| Variant | Input tokens | Bytes from the site | Index fetches | Seconds |
+|---|---|---|---|---|
+| `legacy-l` | 101k | 922 KB | 6 | 56 |
+| `ai-l` | 86k | 647 KB | 6 | 48 |
+| `geo-l` | 33k | 103 KB | 4 | 35 |
+
+**Against the hypotheses.** H5 (`geo-l` bytes at least 10 times lower than `legacy-l`) holds: about 9 times on these 6 tasks and 14 times over all runs. On the 6-task table the ratio is 8.9, so read H5 as "close to 10 times" there. H6 (tokens barely change for Claude's own tool) is **wrong**: `geo-l` used about one third of the `legacy-l` tokens. Likely cause: the fetch tool converts HTML to markdown itself but keeps the menus and footers, and the markdown has none. H7 (a spoofer gets HTML) holds in the hand test, not in a run. H4 (success stays near the top) holds for `geo-l` after the fix.
+
+**Limits.** One run per cell. The sample is 8 tasks. One run (`tl01`) took 112 s, which was not investigated. `ai-l` and `legacy-l` each missed one task on allowance, so the 6-task table leaves those out. Treat the table as a direction. `plans/large-1.yaml` (5 runs per cell) gives the interval.

@@ -1,0 +1,17 @@
+# Dry run on the large site (ADR-028): 8 tasks, one run each, three variants, Claude with Anthropic's fetch tool. 24 runs.
+plan_id: large-dry
+domain: wanderingcodersv.dev
+scheme: https
+host_mode: per_run
+variants: [legacy-l, ai-l, geo-l]
+agent_names: [claude]
+tasks: [tl01, tl02, tl03, tl04, tl05, tl06, tl07, tl08]
+reps: 1
+order_seed: 20261104
+quiet_gap_seconds: 35
+budget: {max_requests: 60, max_seconds: 600}
+pull_cmd: "gcloud compute scp instance-20261102-203604:/srv/geobench/runs/requests.jsonl runs/requests.jsonl --zone=us-central1-c --quiet"   # no shell: split on spaces
+agents:
+  claude:
+    kind: claude
+    model: claude-sonnet-5-5

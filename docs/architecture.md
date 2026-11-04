@@ -701,3 +701,76 @@ Claude with Anthropic's fetch tool, no sign-in path, 6 runs: all 6 said the page
 ## Results of Phase D (2026-11-03)
 
 The three items that Phase C left untested are now tested. Interop with Cloudflare's reference package found and fixed one bug. A signature gate, on one host and for my own bot name only, blocked 6 of 6 spoofed or unsigned runs and passed 3 of 3 signed runs with no false block. A model that does the OAuth steps itself succeeded in 3 of 3 granted Claude runs and 0 of 3 granted Qwen runs. Qwen never followed the sign-in link in the 401. Details are in "Observed results of Phase D" in `docs/adr.md`.
+
+
+---
+
+# Addendum: Phase E, a larger site (added 2026-11-04)
+
+Status: draft for approval. Decision: ADR-028. No code changes before you approve.
+
+## Visual Level
+
+```mermaid
+flowchart TD
+    L[Laptop runner]:::ext
+    API[Claude and its fetch tool]:::ext
+    C[Caddy: HTTPS and wildcard certificates]:::ext
+    P[One site process on the VM]:::ext
+    SM[Small sites: legacy and ai, 9 pages]:::ext
+    LG[Large sites: legacy-l, ai-l and geo-l, 101 pages]:::new
+    ID[Interceptor: check the visitor, serve markdown to a verified agent]:::new
+    DB[Seeded fact table content_large]:::new
+    LOG[Request log with run token]:::ext
+    PA[Parser and metrics with new measures]:::new
+
+    L --> API --> C --> P
+    P --> SM
+    P --> LG
+    DB --> LG
+    LG --> ID
+    P --> LOG --> PA
+
+    classDef new fill:#cfe3ff,stroke:#1d4ed8,color:#111
+    classDef ext fill:#e5e7eb,stroke:#6b7280,color:#111
+```
+
+Caption: The system keeps its shape. The same process on the same VM now serves five sites by host name. The three large sites read from one seeded fact table. On `geo-l` the interceptor checks the visitor and may serve markdown. Blue boxes are new. Grey boxes exist today.
+
+**Complexity tier: single-process tool plus one small VM. It does not change.** The change adds data and two host names. It adds no service, no queue and no database. A higher tier is not needed. A smaller tier is not possible, because the study already needs a public host.
+
+**Why a larger site.** The pilot ended at a ceiling. All 60 runs were correct on both variants. A shortcut such as `llms.txt` costs one fetch to read. On a 9-page site an agent needs 2 to 4 fetches, so the shortcut can save at most one or two. It cannot win. The idea behind a shortcut is simple. Browsing cost grows with site size, and reading an index costs about the same on any site. So a shortcut pays only when browsing costs more than one index fetch. The small site never reached that point. The large site is built to cross it.
+
+**What makes browsing costly.** We add four things, and each one has a reason.
+- *Depth.* Index pages lead to sub-indexes, which lead to leaf pages. The agent needs more hops.
+- *Pagination.* A list continues on numbered pages. The agent must fetch each page to see every row. A question such as "which product has the highest temperature" needs all three list pages.
+- *Hops across sections.* A product page names a warranty class. The warranty years are on the class page. One answer needs two sections.
+- *Decoys.* An archived policy page and near-identical product names. The agent must pick the current one.
+
+**What the interceptor adds to the idea.** A shortcut such as `llms.txt` asks the agent to find it and choose it. The interceptor removes the choice. The site checks who is asking, with the identity code of ADR-017 and ADR-021, and sends a verified agent the markdown form at the normal URL. Identity then has a use: it unlocks the fast path. A spoofer that fakes the user agent gets HTML. The question for the large site is whether this saves bytes, steps and tokens, for an agent that chooses nothing. Claude's fetch tool already turns HTML into markdown, so I expect the saving to show in bytes at the origin and little in tokens. The raw fetch arm in ADR-028 tests the case where the tool does not convert.
+
+**What this does not measure.** Marketing value in generative engines means citation share: how often an AI answer engine cites the site. That needs a public indexed site and weeks of data (Experiment B). We cannot get it from runs. The proxy is a log of what real crawlers fetch and what they were served.
+
+**Pages stay short.** Each page holds about 80 to 150 words of content. The cost then comes from the number of pages and not from long reading. The page chrome of ADR-014 stays, so the HTML weight is the same as on the small site.
+
+**What changes and what does not**
+
+| Part | Change |
+|---|---|
+| Small variants `legacy` and `ai` | None. The pilot stays reproducible. |
+| Large variants | New: `legacy-l`, `ai-l` and `geo-l`. Same fictional company. A new fact table with 24 products, 12 accessories, 18 firmware releases, 8 policies, 6 regions, 15 support articles and 8 guides. |
+| `ai-l` shortcuts | Sectioned `llms.txt` with one line per page, a markdown twin per page, visible pointers, and `Accept: text/markdown`. No `llms-full.txt`. |
+| `geo-l` interceptor | The same pages as `legacy-l`. A verified agent (user agent and IP match, or a valid signature) gets the markdown twin at the same URL. Anyone else gets HTML. |
+| Hosts and certificates | Three new wildcard certificates: `*.legacy-l`, `*.ai-l` and `*.geo-l` under `wanderingcodersv.dev`. Six new DNS records. |
+| Tasks | New file `tasks/tasks_large.yaml`, eight tasks. |
+| Measures | New: `steps_to_answer_page`, `index_fetches`, `decoy_hits`, `served_markdown` and `bytes_total`. |
+| Agents | Claude only. The OpenAI agent comes in a later ADR. Qwen is not run on the large site. |
+
+**Memory.** The process builds each site once at start and keeps it in memory. A page is about 100 KB. A large site has 101 pages, so about 10 MB, and three large sites add about 30 MB (`geo-l` shares its HTML with `legacy-l` in code, but the process holds both). The VM had 363 MB available on 2026-11-03. I check the number again before the deploy. If it is short, the fallback is to build a page when first requested.
+
+**Failure and the tradeoff.** The large result cannot be compared directly with the pilot, because size and content both change. We treat it as a second experiment. The OpenAI agent and the confidence intervals come later and are separate changes.
+
+## Open questions (Phase E)
+
+1. The open questions of ADR-028 apply here. They cover names, `llms-full.txt`, task wording, certificates, repeats and the Stripe re-check.
+2. **Code against docs.** The status line at the top of this file says "draft for approval. No code exists yet." The code exists and ran four phases. I did not change that line, because you did not ask for it. I recommend a separate clean-up of the stale status lines in `architecture.md`, `adr.md` and the README.
