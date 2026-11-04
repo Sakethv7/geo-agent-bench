@@ -1095,3 +1095,10 @@ Writes `identity.csv`: `claimed_identity, proof_level, requests, distinct_ips, f
 - Phase B runs as two plans, `plans/phase-b-qwen.yaml` and `plans/phase-b-claude.yaml` (18 runs each, files `runs/phase-b-qwen-runs.jsonl` and `runs/phase-b-claude-runs.jsonl`). The API key is only in the user's terminal tab, so the Qwen arm ran first from the assistant's session. The cells, tasks and order seed are the same as the one 36-run plan in the draft.
 - Web Bot Auth, after reading the drafts (protocol-02 and directory-00, 2026-11-03): the signer sends `Signature-Agent: sig1="https://origin"` (no trailing slash), covers `"@authority" "signature-agent";key="sig1"`, and the verifier reads the member named by that key. A member with a `type` other than `directory` is ignored. The old quoted-string form still verifies. Phase C ran on the old form, before this change. `directory_unreachable` cases and the seven verifier rules are unchanged. Not implemented from the drafts: `Content-Digest`, directory response signatures, and the `jwks_uri` and `cimd` discovery types.
 
+## Addendum: empty-reply retry (ADR-024, added 2026-11-03)
+
+- Plan key on an `openai_mcp` agent: `empty_reply_retries` (integer, default 0). When the model replies with no tool call and no text, the client adds one user message and asks again, up to that many times. The message is the constant `EMPTY_NUDGE` in `agents.py`.
+- `AgentResult.retries` and the run record `retries` hold the count. `harness.empty_reply_retries` records the setting.
+- New plan: `plans/phase-b-qwen-retry.yaml`, agent `qwen-mcp-retry`, 18 runs, file `runs/phase-b-qwen-retry-runs.jsonl`.
+- Test promised before code: an empty reply followed by an answer gives the answer and `retries` 1; a second empty reply ends the run with an empty answer; the default of 0 changes nothing.
+

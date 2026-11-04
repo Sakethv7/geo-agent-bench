@@ -689,3 +689,7 @@ Evidence: `reports/phase-b-claude/`, `reports/phase-b-qwen/`, `reports/phase-c/`
 - **Identity and permission are separate.** Spoofed and unsigned agents with granted consent read the orders page as well as the signed agent did. The signature check only records.
 - **Honest at denial.** After denied consent no run made up an order id (`fabricated_order` 0 in 9 of 9).
 - **Not tested.** Claude's own fetch tool in the sign-in test. Blocking by signature. A model that runs OAuth itself. Whether Claude's real tools send signatures: none appeared in this data.
+
+### Phase B follow-up: the retry arm (2026-11-03)
+
+With one retry on an empty reply (ADR-024), Qwen scored 18 of 18 on the Phase B cells, against 14 of 18 without it. The nudge was used 3 times and each use ended correct. Two other originally empty runs answered without it, so the sampling is not exactly repeatable. The arm used 47% more input tokens and 34% more run time, and obeyed the poisoned description in 2 runs instead of 1. Details are in the ADR-024 result note and in `reports/phase-b-qwen-retry/`.

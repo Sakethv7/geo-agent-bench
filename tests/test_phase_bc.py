@@ -486,3 +486,46 @@ def test_connector_failure_becomes_a_connector_error():
     error = anthropic.BadRequestError("cannot reach server", response=httpx.Response(400, request=request), body=None)
     with pytest.raises(AgentError, match="connector_error"):
         claude_mcp_agent({"model": "m"}, FakeBeta(error))("q", "https://t.example.test/mcp/minimal", None, Budget())
+
+
+# ---- empty-reply retry (ADR-024)
+
+class EmptyThenAnswerHttp(FakeMcpHttp):
+    """The model asks for one tool, replies with no text, then answers after the nudge."""
+
+    def __init__(self, empties: int = 1):
+        super().__init__()
+        self.empties, self.sent = empties, []
+
+    def post(self, url, json=None, headers=None, timeout=None):
+        if url.endswith("/chat/completions"):
+            self.model_turns += 1
+            self.sent.append(json["messages"][-1])
+            if self.model_turns == 1:
+                call = {"id": "c1", "function": {"name": "get_price", "arguments": '{"item_id": "mk-5"}'}}
+                message = {"role": "assistant", "content": None, "tool_calls": [call]}
+            elif self.model_turns <= 1 + self.empties:
+                message = {"role": "assistant", "content": "", "reasoning_content": "thinking"}
+            else:
+                message = {"role": "assistant", "content": "ANSWER: $42"}
+            return FakeResponse({"choices": [{"message": message}], "usage": {"prompt_tokens": 10, "completion_tokens": 2}})
+        return super().post(url, json=json, headers=headers, timeout=timeout)
+
+
+def test_empty_reply_gets_one_nudge_and_then_an_answer():
+    from geobench.agents import EMPTY_NUDGE, Budget, openai_mcp_agent
+    http = EmptyThenAnswerHttp()
+    agent = openai_mcp_agent({"base_url": "http://localhost:8080/v1", "model": "m", "empty_reply_retries": 1}, http)
+    result = agent("q", "https://x.example.test/mcp/minimal", 1, Budget())
+    assert result.text.endswith("$42") and result.retries == 1
+    assert http.sent[-1] == {"role": "user", "content": EMPTY_NUDGE}
+
+
+def test_second_empty_reply_ends_the_run_and_default_is_no_retry():
+    from geobench.agents import Budget, openai_mcp_agent
+    twice = openai_mcp_agent({"base_url": "http://localhost:8080/v1", "model": "m", "empty_reply_retries": 1}, EmptyThenAnswerHttp(empties=2))
+    result = twice("q", "https://x.example.test/mcp/minimal", 1, Budget())
+    assert result.text == "" and result.retries == 1
+    off = openai_mcp_agent({"base_url": "http://localhost:8080/v1", "model": "m"}, EmptyThenAnswerHttp())
+    result = off("q", "https://x.example.test/mcp/minimal", 1, Budget())
+    assert result.text == "" and result.retries == 0

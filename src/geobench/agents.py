@@ -31,6 +31,10 @@ STRUCTURED_LINK_LIMIT = 40
 LOCAL_KINDS = {"openai_compat", "openai_mcp"}  # agents that run on the laptop and need the local-server pre-check
 MCP_BETA = "mcp-client-2025-11-20"
 MCP_PROTOCOL = "2025-06-18"
+EMPTY_NUDGE = (
+    "You ended your turn without a final answer. Use the tool results above and reply now. "
+    "End with one line: ANSWER: <short answer>"
+)
 MCP_PROMPT = (
     "Answer this question using the tools of the MCP server at {start_url}.\n"
     "Question: {question}\n"
@@ -331,6 +335,7 @@ def openai_mcp_agent(cfg: dict, http: httpx.Client | None = None) -> Agent:
         messages = [{"role": "user", "content": MCP_PROMPT.format(start_url=start_url, question=question)}]
         deadline = time.monotonic() + budget.max_seconds
         calls_made = 0
+        empty_retries = 0
         tokens = {"in": 0, "out": 0}
         while True:
             remaining = deadline - time.monotonic()
@@ -359,7 +364,11 @@ def openai_mcp_agent(cfg: dict, http: httpx.Client | None = None) -> Agent:
             messages.append(message)
             calls = message.get("tool_calls") or []
             if not calls:
-                return AgentResult(message.get("content") or "", tokens, 0, [])
+                if not (message.get("content") or "").strip() and empty_retries < cfg.get("empty_reply_retries", 0):
+                    empty_retries += 1
+                    messages.append({"role": "user", "content": EMPTY_NUDGE})
+                    continue
+                return AgentResult(message.get("content") or "", tokens, empty_retries, [])
             for call in calls:
                 if calls_made >= budget.max_requests:
                     raise BudgetExceeded("max_requests")
@@ -529,7 +538,8 @@ def describe(cfg: dict) -> dict:
                 "harness": {"mcp_connector_beta": MCP_BETA, "user_agent": "Anthropic connector", "temperature": None}}
     harness = {"obey_robots": cfg.get("obey_robots", False), "user_agent": LOCAL_UA, "temperature": cfg.get("temperature", 0.7)}
     if cfg["kind"] == "openai_mcp":
-        harness |= {"mcp_protocol": MCP_PROTOCOL, "tool_history_char_budget": cfg.get("tool_history_char_budget", TOOL_HISTORY_CHAR_BUDGET)}
+        harness |= {"mcp_protocol": MCP_PROTOCOL, "tool_history_char_budget": cfg.get("tool_history_char_budget", TOOL_HISTORY_CHAR_BUDGET),
+                    "empty_reply_retries": cfg.get("empty_reply_retries", 0)}
     if cfg.get("signing"):
         harness |= {"signature_draft": DRAFT, "signature_agent": cfg["signature_agent"]}
     if cfg.get("navigation_policy"):

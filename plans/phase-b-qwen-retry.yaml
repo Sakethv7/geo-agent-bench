@@ -1,0 +1,25 @@
+# Phase B, Qwen arm with one retry on an empty reply (ADR-024): the same 18 cells, seeds and order as phase-b-qwen.yaml.
+# Write results only to runs/phase-b-qwen-retry-runs.jsonl. Never pool it with phase-b-qwen-runs.jsonl.
+plan_id: phase-b-qwen-retry
+domain: wanderingcodersv.dev
+scheme: https
+host_mode: per_run
+variants: [native]
+surfaces: [minimal, broad, poisoned]
+agent_names: [qwen-mcp-retry]
+tasks: [t01, t02, t03, t04, t05, t06]
+reps: 1
+order_seed: 20261103
+quiet_gap_seconds: 35
+budget: {max_requests: 40, max_seconds: 600}
+pull_cmd: "gcloud compute scp instance-20261102-203604:/srv/geobench/runs/requests.jsonl runs/requests.jsonl --zone=us-central1-c --quiet"
+agents:
+  qwen-mcp-retry:
+    kind: openai_mcp
+    base_url: http://localhost:8080/v1
+    model: qwen3-8b-q4_k_m
+    model_file: Qwen3-8B-Q4_K_M.gguf (Qwen/Qwen3-8B-GGUF, sha256 d98cdcbd03e17ce47681435b5150e34c1417f50b5c0019dd560e4882c5745785)
+    runtime: llama.cpp
+    server_args: "-m ~/models/Qwen3-8B-Q4_K_M.gguf --alias qwen3-8b-q4_k_m -c 32768 --cache-type-k q8_0 --cache-type-v q8_0 --jinja --port 8080"
+    temperature: 0.7
+    empty_reply_retries: 1
