@@ -1,0 +1,18 @@
+# Phase C, Claude check (ADR-022 addendum): Claude with Anthropic's fetch tool on the protected page, with no sign-in.
+# 1 task x 6 repeats = 6 runs. Write results only to runs/phase-c-claude-runs.jsonl. Needs ANTHROPIC_API_KEY.
+plan_id: phase-c-claude
+domain: wanderingcodersv.dev
+scheme: https
+host_mode: per_run
+variants: [account]
+agent_names: [claude-vendor]
+tasks: [t07]
+reps: 6
+order_seed: 20261103
+quiet_gap_seconds: 35
+budget: {max_requests: 12, max_seconds: 300}
+pull_cmd: "gcloud compute scp instance-20261102-203604:/srv/geobench/runs/requests.jsonl runs/requests.jsonl --zone=us-central1-c --quiet"
+agents:
+  claude-vendor:
+    kind: claude
+    model: claude-sonnet-5-5

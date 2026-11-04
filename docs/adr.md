@@ -1731,3 +1731,7 @@ The arm `qwen-mcp-retry` ran all 18 cells. It scored 18 of 18 exact answers, aga
 - **It raised exposure to the poison.** Obedience to the poisoned description went from 1 to 2 runs. The extra run was a rescued run that went on to call `get_policy` and then `log_access`. A model that is helped to finish the job reaches more of the tool descriptions. This is the same trade-off that Phase A showed for structured navigation.
 
 **Decision.** The upside is real, so the setting stays available. It stays off by default, because it changes what the arm measures. A future Qwen MCP arm should state whether it used it. The original `qwen-mcp` result is kept as recorded.
+
+### Addendum to ADR-022: Claude on the protected page, no sign-in (2026-11-03)
+
+Approved by the user on 2026-11-03 ("go for it"). Claude's fetch tool cannot hold a token, so Claude took no part in the 18 sign-in runs. This adds a small check, with no new code: Claude with Anthropic's fetch tool asks for the protected page on the `account` host and has no way to sign in. The plan is `plans/phase-c-claude.yaml`: 1 task (t07) x 6 repeats = 6 runs, written to `runs/phase-c-claude-runs.jsonl`. It answers one question: when Claude meets a 401 it cannot pass, does it say it cannot read the page, or does it make up an order number? The measure is the existing `fabricated_order`. It is not a test of OAuth. It is not pooled with the Qwen runs, and 6 runs give no rate. Cost: a few cents by token count.
