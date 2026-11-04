@@ -152,20 +152,35 @@ def test_signature_verdicts():
     assert verifier.verify(headers | {"Signature-Input": "garbage"}, "site.example.test").verdict == "invalid"
 
 
-def test_both_signature_agent_forms_verify():
+def test_all_signature_agent_forms_verify():
     key = Ed25519PrivateKey.generate()
     directory = directory_document([key])
-    verifier = Verifier(fetch=lambda url: directory, url_ok=lambda url: True)
-    modern = sign_headers(key, "https://bot.example.test/", "site.example.test")
-    legacy = sign_headers(key, "https://bot.example.test/", "site.example.test", legacy=True)
-    assert modern["Signature-Agent"] == 'sig1="https://bot.example.test"' and "key=\"sig1\"" in modern["Signature-Input"]
+    fetched = []
+    verifier = Verifier(fetch=lambda url: fetched.append(url) or directory, url_ok=lambda url: True)
+    url_form = sign_headers(key, "https://bot.example.test/", "site.example.test")
+    origin_form = sign_headers(key, "https://bot.example.test/", "site.example.test", form="origin")
+    legacy = sign_headers(key, "https://bot.example.test/", "site.example.test", form="legacy")
+    path = "https://bot.example.test/.well-known/http-message-signatures-directory"
+    assert url_form["Signature-Agent"] == f'sig1="{path}"' and 'key="sig1"' in url_form["Signature-Input"]
+    assert origin_form["Signature-Agent"] == 'sig1="https://bot.example.test"'
     assert legacy["Signature-Agent"] == '"https://bot.example.test/"'
-    assert verifier.verify(modern, "site.example.test").verdict == "valid"
-    assert verifier.verify(legacy, "site.example.test").verdict == "valid"
-    typed = 'sig1="https://bot.example.test/jwks.json";type=jwks_uri'  # not a directory member: ignored, so nothing is covered
-    assert verifier.verify(modern | {"Signature-Agent": typed}, "site.example.test").reason == "signed_member_missing"
-    swapped = modern | {"Signature-Agent": 'sig1="https://evil.example.test/"'}  # the signed member changed
+    for headers in (url_form, origin_form, legacy):
+        assert verifier.verify(headers, "site.example.test").verdict == "valid"
+    from geobench.webbotauth import directory_url
+    assert {directory_url(u) for u in fetched} == {path}  # the url form, the origin form and the legacy form all end at the same key set
+    swapped = url_form | {"Signature-Agent": 'sig1="https://evil.example.test/keys.json"'}  # the signed member changed
     assert verifier.verify(swapped, "site.example.test").verdict == "invalid"
+    typed = 'sig1="https://bot.example.test/jwks.json";type=jwks_uri'  # a member with a parameter is ignored
+    assert verifier.verify(url_form | {"Signature-Agent": typed}, "site.example.test").reason == "signed_member_missing"
+
+
+def test_directory_url_rules():
+    from geobench.webbotauth import directory_url
+    well_known = "/.well-known/http-message-signatures-directory"
+    assert directory_url("https://bot.example.test") == "https://bot.example.test" + well_known
+    assert directory_url("https://bot.example.test/") == "https://bot.example.test" + well_known
+    assert directory_url("https://bot.example.test/keys.json?x=1") == "https://bot.example.test/keys.json"
+    assert directory_url("https://bot.example.test" + well_known) == "https://bot.example.test" + well_known
 
 
 def test_agent_url_rules_and_verifier_never_raises():

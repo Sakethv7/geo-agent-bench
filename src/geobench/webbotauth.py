@@ -2,9 +2,11 @@
 
 Follows the IETF Web Bot Auth drafts and RFC 9421 (HTTP message signatures). The draft ids I read are
 in DRAFT. Headers: Signature-Agent, Signature-Input, Signature. Signature-Agent is a Structured Fields
-dictionary, sig1="https://agent.example", and the covered component is "signature-agent";key="sig1".
-The older quoted-string form (legacy in the drafts) is still accepted. A signer sends an origin with no
-trailing slash. A member whose type parameter is not directory is ignored. The verifier only records a
+dictionary, sig1="https://agent.example/.well-known/http-message-signatures-directory", and the covered
+component is "signature-agent";key="sig1". In the working-group draft the value is the URL of the key
+set. In the earlier -02 draft it was an origin and the verifier added the well-known path. A value with no
+path is still read that way. The legacy quoted string is still accepted. A member with a parameter other
+than type=directory is ignored. The verifier only records a
 verdict. It never blocks and never raises.
 """
 import base64
@@ -23,8 +25,8 @@ from cryptography.exceptions import InvalidSignature
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey, Ed25519PublicKey
 
 DRAFT = (
-    "draft-meunier-webbotauth-httpsig-protocol-02 (2026-08-18) and draft-meunier-webbotauth-httpsig-directory-00 "
-    "(2026-06-26). Both are replaced by draft-ietf-webbotauth-httpsig-protocol, which I did not read"
+    "draft-ietf-webbotauth-httpsig-protocol-01 (2026-10-29). Still accepted: the origin form of "
+    "draft-meunier-webbotauth-httpsig-protocol-02 and the legacy quoted string"
 )
 DIRECTORY_PATH = "/.well-known/http-message-signatures-directory"
 DIRECTORY_TYPE = "application/http-message-signatures-directory+json"
@@ -76,10 +78,10 @@ def directory_document(keys: list[Ed25519PrivateKey]) -> dict:
 
 def _agent_members(raw: str) -> dict[str, str]:
     """The members of a Signature-Agent dictionary: {label: url}. The legacy quoted string gets the label ''.
-    A member with a type other than directory (jwks_uri, cimd) is left out."""
+    A member with a parameter other than type=directory (for example type=jwks_uri) is left out."""
     value = raw.strip()
     members = {label: url for label, url, extra in re.findall(r'(\w+)="([^"]*)"((?:;\w+=[\w-]+)*)', value)
-               if not re.search(r";type=(?!directory\b)", extra)}
+               if extra in ("", ";type=directory")}
     if members:
         return members
     legacy = re.fullmatch(r'"(.*)"', value)
@@ -114,11 +116,16 @@ def _base(components: list[Component], authority: str, method: str, path: str, a
 
 
 def sign_headers(key: Ed25519PrivateKey, agent_url: str, authority: str, now: float | None = None, ttl: int = 300,
-                 legacy: bool = False) -> dict[str, str]:
-    """Headers for one request. legacy=True sends the old quoted-string Signature-Agent form."""
+                 form: str = "url") -> dict[str, str]:
+    """Headers for one request. form is url (working-group -01: the key-set URL), origin (-02: an origin with no
+    trailing slash) or legacy (the old quoted string)."""
     created = int(now if now is not None else time.time())
     keyid = thumbprint(public_jwk(key)["x"])
-    agent_url = agent_url if legacy else agent_url.rstrip("/")  # the drafts want the origin, with no trailing slash
+    legacy = form == "legacy"
+    if form == "url":
+        agent_url = directory_url(agent_url)
+    elif form == "origin":
+        agent_url = agent_url.rstrip("/")
     agent_header = f'"{agent_url}"' if legacy else f'sig1="{agent_url}"'
     params = f';created={created};expires={created + ttl};keyid="{keyid}";alg="ed25519";tag="{TAG}"'
     components: list[Component] = [("@authority", None), ("signature-agent", None if legacy else "sig1")]
@@ -158,9 +165,18 @@ def public_agent_url_ok(url: str) -> bool:
     return bool(addresses) and all(ipaddress.ip_address(a).is_global for a in addresses)
 
 
+def directory_url(agent_url: str) -> str:
+    """The URL of the key set. A value with no path is an origin, so the well-known path is added (-02 form).
+    Any other value is the key-set URL itself (working-group -01 form), without its query."""
+    parsed = urlparse(agent_url)
+    if parsed.path in ("", "/"):
+        return agent_url.rstrip("/") + DIRECTORY_PATH
+    return parsed._replace(query="", fragment="").geturl()
+
+
 def fetch_directory_http(agent_url: str) -> dict | None:
     """Fetch the key directory. No redirects. At most 64 KB. None on any failure."""
-    url = agent_url.rstrip("/") + DIRECTORY_PATH
+    url = directory_url(agent_url)
     try:
         with httpx.Client(follow_redirects=False, timeout=DIRECTORY_TIMEOUT) as client, client.stream("GET", url) as response:
             if response.status_code != 200:

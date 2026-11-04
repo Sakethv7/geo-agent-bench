@@ -1101,4 +1101,5 @@ Writes `identity.csv`: `claimed_identity, proof_level, requests, distinct_ips, f
 - `AgentResult.retries` and the run record `retries` hold the count. `harness.empty_reply_retries` records the setting.
 - New plan: `plans/phase-b-qwen-retry.yaml`, agent `qwen-mcp-retry`, 18 runs, file `runs/phase-b-qwen-retry-runs.jsonl`.
 - Test promised before code: an empty reply followed by an answer gives the answer and `retries` 1; a second empty reply ends the run with an empty answer; the default of 0 changes nothing.
+- Web Bot Auth, second round (2026-11-03): after reading `draft-ietf-webbotauth-httpsig-protocol-01`, `Signature-Agent` carries the URL of the key set (`sig1="https://bot.<domain>/.well-known/http-message-signatures-directory"`). A value with no path is read as an origin and gets the well-known path added (the -02 form). The legacy quoted string still verifies. A member with a parameter other than `type=directory` is ignored. `sign_headers` takes `form` (`url`, `origin` or `legacy`). Live check: all five forms gave `valid`, a throwaway key gave `unknown_key`, no signature gave no verdict.
 
