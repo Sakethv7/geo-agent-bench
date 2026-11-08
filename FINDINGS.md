@@ -6,7 +6,7 @@ Seven findings from the benchmark, each with its evidence and its limit. The num
 
 **2. A fetch tool can cache for 21 minutes or more, by full URL.** Repeat runs on one host were served from the tool's cache and left no trace in our log. The fix was one fresh host name per run, so each run has its own cache key and its own token. Limit: measured for Claude's tool, and suspected once for OpenAI's.
 
-**3. Use absolute links in markdown that you serve to agents.** A fetch tool follows only URLs it has seen. So it cannot use a relative link in raw markdown. My first `geo-l` version used relative `.md` links and failed 0 of 8. After I made the links absolute, it answered 8 of 8. Limit: this is the behavior of one tool. A human reader would never notice it.
+**3. Use absolute links in markdown that you serve to agents.** A fetch tool follows only URLs it has seen. So it cannot use a relative link in raw markdown. My first `geo-l` version used relative `.md` links and answered 0 of 8 correctly. After I made the links absolute, it answered 8 of 8. Limit: this is the behavior of one tool. A human reader would never notice it.
 
 **4. Serving markdown at the same URL to a verified agent cut tokens by about two thirds.** Take the 6 tasks that all three variants solved. Mean input tokens were 101k for plain HTML and 86k with `llms.txt` and markdown copies. They were 33k with the interceptor. I predicted the tokens would barely change, and I was wrong. My explanation is that the tool keeps menus and footers when it converts HTML, but I did not test it. Limit: one run per cell, one agent.
 

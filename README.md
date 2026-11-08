@@ -1,8 +1,8 @@
 # geo-agent-bench
 
-A benchmark that measures how AI agents behave on a test website when the same content is published in different formats. GEO means Generative Engine Optimization. The site runs on one small VM. A runner sends questions to an agent, and the site writes its own request log. The scorer checks each answer against exact ground truth and checks the agent's claims against the log.
+A descriptive experimental harness for studying agent web behavior, identity, tools and access. It is not yet a general benchmark of GEO effectiveness. GEO means Generative Engine Optimization. The harness compares three kinds of web surface while holding the underlying facts fixed: legacy HTML built for people, agent-readable sites with `llms.txt` and markdown copies, and agent-native interfaces built from MCP tools or identity-aware responses. The site runs on one small VM. A runner sends questions to an agent, the site writes its own request log, and a scorer checks each answer against exact ground truth and each claim against the log.
 
-The project asks three questions. Do agents use the shortcuts a site gives them, such as `llms.txt` or a markdown copy? Can a site tell a real agent from one that copies its name, and does that change what it should serve? What do agents do with sign-in, signed requests and tool descriptions? The docs explain each concept and record where the real build differed from the plan. Every decision has an ADR, and every ADR lists what it gave up.
+The project asks three groups of questions. First, how do agents and crawlers navigate the three surfaces? Second, do agents follow hidden instructions, ask for more data than the task needs, or cross a denied boundary? Third, can a site distinguish a named agent from a copycat with OAuth permissions and signed requests? Qwen and Claude ran as agents in the harness. Anthropic and OpenAI crawlers appeared in the public logs, and OpenAI hosted search was tested in a separate probe; those observations are not a three-agent comparison. The docs record where the real build differed from the plan. Every decision has an ADR, and every ADR lists what it gave up.
 
 ## Results at a glance
 
@@ -14,7 +14,7 @@ All results are descriptive. Most cells have one run, so read them as direction,
 | Phase A | 36 runs, Claude and Qwen3-8B, 100 KB pages, planted files | Claude 24 of 24. Qwen 0 of 12 with direct fetch, 12 of 12 with fixed navigation. No planted file was hit. |
 | Phase B and C | 54 runs, MCP tools, hidden tool text, signatures | Broad tools returned 18 to 28 times the bytes and gave the most correct runs. Claude followed a hidden tool-description sentence in 2 of 2 exposed runs. A spoofer with a valid token read the protected page. |
 | Phase D | Interop test, signature gate, model-run OAuth | One verifier bug found and fixed. The gate blocked 6 of 6 spoofed or unsigned runs and passed 3 of 3 signed. Claude ran OAuth alone 3 of 3. Qwen 0 of 3. |
-| Phase E | 101-page site, three variants, 32 runs plus an 8-run rerun | `legacy-l` 7 of 8, `ai-l` 7 of 8, `geo-l` 8 of 8 after one bug fix. `geo-l` used about one third of the input tokens on the 6 shared tasks. |
+| Phase E | 101-page site, three variants, 24 initial runs plus an 8-run corrected rerun (32 total) | `legacy-l` 7 of 8, `ai-l` 7 of 8, `geo-l` 8 of 8 after one bug fix. `geo-l` used about one third of the input tokens on the 6 shared tasks. |
 | Phase F | One probe of OpenAI's hosted web search | It fetches live as `ChatGPT-User`, from IPs in OpenAI's published file. A repeat page came from a cache. |
 | Real visitors | The public log of the test sites | ClaudeBot and GPTBot took every page and every markdown copy. Named AI crawlers were about 4% of 3,170 stranger requests. |
 

@@ -2064,7 +2064,7 @@ Caption: The large site has the same company and the same kinds of facts as the 
 
 **Finding for the notes.** A fetch tool that follows only URLs it has seen cannot use relative links in markdown. A site that serves markdown to agents should use absolute links. This is a rule for any GEO interceptor.
 
-**Next.** Redeploy, rerun the 8 `geo-l` cells (plan `plans/large-dry-geo.yaml`), then decide on `plans/large-1.yaml`.
+**Next.** Redeploy, rerun the 8 `geo-l` cells (plan `plans/large-dry-geo.yaml`), then decide on the 120-run plan later archived at `plans/archive/large-1.yaml`.
 
 **Observed after the fix (2026-11-04, `plans/large-dry-geo.yaml`, 8 `geo-l` runs, one per task).** All 8 correct. Every run matched the identity reference, and 41 of 41 page fetches got markdown. No injection was obeyed. On the 6 tasks that all three variants answered correctly, the mean per run was:
 
@@ -2076,7 +2076,7 @@ Caption: The large site has the same company and the same kinds of facts as the 
 
 **Against the hypotheses.** H5 (`geo-l` bytes at least 10 times lower than `legacy-l`) holds: about 9 times on these 6 tasks and 14 times over all runs. On the 6-task table the ratio is 8.9, so read H5 as "close to 10 times" there. H6 (tokens barely change for Claude's own tool) is **wrong**: `geo-l` used about one third of the `legacy-l` tokens. Likely cause: the fetch tool converts HTML to markdown itself but keeps the menus and footers, and the markdown has none. H7 (a spoofer gets HTML) holds in the hand test, not in a run. H4 (success stays near the top) holds for `geo-l` after the fix.
 
-**Limits.** One run per cell. The sample is 8 tasks. One run (`tl01`) took 112 s, which was not investigated. `ai-l` and `legacy-l` each missed one task on allowance, so the 6-task table leaves those out. Treat the table as a direction. `plans/large-1.yaml` (5 runs per cell) gives the interval.
+**Limits.** One run per cell. The sample is 8 tasks. One run (`tl01`) took 112 s, which was not investigated. `ai-l` and `legacy-l` each missed one task on allowance, so the 6-task table leaves those out. Treat the table as a direction. The later-archived `plans/archive/large-1.yaml` would have used 5 runs per cell.
 
 
 ## ADR-029: Probe OpenAI's hosted web search before any OpenAI benchmark arm
@@ -2153,3 +2153,22 @@ Status of the ADR: approved by you on 2026-11-04. The probe ran. The arm is a se
 **What is not shown.** One model, one probe, two windows. I did not test a deep site walk, how many pages the tool opens per question, whether it follows links it has not seen, or what it sees (HTML, markdown or text). Cost: three API calls reached the model, a few cents. I did not read the token usage.
 
 **Next (separate ADR).** The arm on the large site. Questions for it: does `open_page` follow unseen URLs, how does it treat the `geo-l` markdown, what is the cost per run, and which model. The identity reference needs an `openai` entry built from the three published files, because the probe wrote only a `gpt-search` entry from observed values.
+
+
+## ADR-030: stop the research-scale plans and stage any cross-model follow-up
+
+Status: approved for plan cleanup on 2026-11-08. No harness implementation, deployment or model execution is approved. `Teach-back: not required` because this decision removes unexecuted plans and records a smaller experiment; it does not change authentication, schemas, concurrency, retry behavior or a public interface.
+
+**Decision.** The unexecuted 120-run Phase E plan is archived at `plans/archive/large-1.yaml`. The completed 32 Phase E observations remain the evidence for the directional portfolio claim. No additional Phase E call is scheduled. If a later reviewer needs stronger confirmation, the maximum follow-up is 16 new Claude calls: `legacy-l` and `geo-l`; tasks `tl01`, `tl05`, `tl06` and `tl07`; two additional observations per cell. At the 2026-11-08 Sonnet 5.5 prices and the recorded token counts, that follow-up is estimated at $2.86. It needs a new plan ID and a fresh runs file.
+
+The 216-run controlled Phase G draft and 144-run vendor-native draft are discarded. Phase F already answers the narrow vendor-native question: OpenAI hosted search can fetch the site live. Qwen is not placed on the 101-page site because ADR-028 already records that its failure there would primarily measure a known navigation/context limitation.
+
+Any future Phase G begins with one controlled canary only: Claude and GPT; `legacy-l` and `geo-l`; tasks `tl05` and `tl07`; one observation per cell. That is 8 paid calls. The estimated combined API cost is $1.21 using recorded Phase E tokens, but controlled-client token accounting may differ. The batch stops after those 8 calls for human inspection. Only a useful, technically valid canary can authorize a separate 16-call expansion, giving 24 cumulative calls and an estimated cumulative cost of $3.62. These are directional engineering checks, not statistically conclusive model rankings.
+
+**Model correction.** The discarded draft used deprecated `gpt-5-mini`. A later implementation must recheck pricing and availability, then pin a supported snapshot. On 2026-11-08 the candidate was `gpt-5.4-mini-2026-03-17`, documented at $0.75 per million input tokens and $4.50 per million output tokens. Sonnet 5.5 was documented at $2 and $10 respectively.
+
+**Invariants.** Existing run records and reports remain unchanged. A new plan never reuses an old plan ID, runs file or run token. A cost estimate is not a spending cap. No canary plan is made executable until its adapter and resume behavior receive separate review. Controlled and vendor-native observations are never pooled.
+
+**Failure modes and recovery.** The main risks are treating a one-observation canary as a benchmark, automatically continuing after a broken or unexpectedly expensive call, and duplicating paid work after a crash. Therefore there is no expansion plan yet and no executable Phase G plan. Recovery is deletion of an unexecuted proposal or creation of a new plan ID; completed paid records, if any are later authorized, remain immutable.
+
+**Rejected alternatives.** The 120-run Phase E plan adds confidence but little portfolio value. The full Phase G matrices spend on middle-surface and easy-task cells that have low marginal information. Running Qwen on the large site repeats a known limitation. Combining vendor-native and controlled arms hides a fetch-system confounder.

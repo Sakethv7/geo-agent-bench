@@ -211,9 +211,12 @@ def test_large_measures_match_a_fixed_log():
     assert large_measures([], task) == {"steps_to_answer_page": None, "index_fetches": 0, "decoy_hits": 0, "served_markdown": 0, "bytes_total": 0}
 
 
-@pytest.mark.parametrize("plan", ["large-dry", "large-dry-geo", "large-1", "large-raw"])
-def test_plans_expand_to_the_promised_number_of_runs(plan):
-    data = yaml.safe_load((ROOT / "plans" / f"{plan}.yaml").read_text())
+@pytest.mark.parametrize(
+    ("path", "expected"),
+    [("large-dry.yaml", 24), ("large-dry-geo.yaml", 8), ("archive/large-1.yaml", 120), ("large-raw.yaml", 24)],
+)
+def test_plans_expand_to_the_promised_number_of_runs(path, expected):
+    data = yaml.safe_load((ROOT / "plans" / path).read_text())
     check_plan(data)
-    assert len(expand_plan(data)) == {"large-dry": 24, "large-dry-geo": 8, "large-1": 120, "large-raw": 24}[plan]
+    assert len(expand_plan(data)) == expected
     assert set(data["tasks"]) <= set(TASKS)

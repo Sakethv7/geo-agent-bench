@@ -1278,7 +1278,7 @@ Draft task kinds (the answer for each is printed from the fact table at build ti
 ## 7. Plans and run budget
 
 - `plans/large-dry.yaml`: variants `[legacy-l, ai-l, geo-l]`, tasks `tl01` to `tl08`, 1 repeat, 24 runs, agent Claude Sonnet 5.5 through Anthropic's fetch tool.
-- `plans/large-1.yaml`: the same, with 5 repeats, 120 runs.
+- `plans/archive/large-1.yaml`: the same, with 5 repeats and 120 runs; archived unexecuted by ADR-030.
 - `plans/large-raw.yaml` (only if you accept open question 7 of ADR-028): the `claude_tools` raw fetch arm, variants `[legacy-l, geo-l]`, tasks `tl01`, `tl03`, `tl05`, `tl06`, 3 repeats, 24 runs. New `plan_id` and new runs file. Never reuse a runs file that has the same run ids.
 - Budget per run: `max_requests: 60`, `max_seconds: 600`. The pilot used 40 and 600.
 - The runner pre-check (logic_flow, "One run on a large site") is new for the two large variants. The 14-day certificate guard is unchanged.
@@ -1326,7 +1326,7 @@ Draft task kinds (the answer for each is printed from the fact table at build ti
 - **Raw arm needs a signature.** Our raw fetch tool runs from the laptop, which is not in Anthropic's range, so the interceptor would never treat it as verified. In `plans/large-raw.yaml` the arm signs every request with our bot key (`signing: signed`, `signature_agent`), and a valid signature qualifies for the twin. `claude_tools_agent` builds a signing client when the plan sets `signing`.
 - **Identity reference.** `runs/identity_reference.json` on the laptop now lists `160.79.104.` to `160.79.111.` for Claude (the whole `/21`). The file is git-ignored, so copy it to the VM at deploy.
 - **Memory.** `geo-l` shares the HTML page objects of `legacy-l` (a cached build), so the three large variants add about 20 MB, not 30.
-- **Code and test counts.** New module `src/geobench/content_large.py` (it registers the variants when imported), `tests/test_large_site.py` (18 tests), `tasks/tasks_large.yaml`, `plans/large-dry.yaml`, `plans/large-1.yaml`, `plans/large-raw.yaml`. Small edits: `content.py` (`chrome` takes a menu list), `server.py` (`interceptor_twin`, `served`), `metrics.py` (`large_measures`), `tasks.py` (two fields), `runner.py` (`large_precheck`), `agents.py` (signed raw arm), `deploy/Caddyfile` (six blocks). 184 tests pass.
+- **Code and test counts.** New module `src/geobench/content_large.py` (it registers the variants when imported), `tests/test_large_site.py` (18 tests), `tasks/tasks_large.yaml`, `plans/large-dry.yaml`, the later-archived `plans/archive/large-1.yaml`, and `plans/large-raw.yaml`. Small edits: `content.py` (`chrome` takes a menu list), `server.py` (`interceptor_twin`, `served`), `metrics.py` (`large_measures`), `tasks.py` (two fields), `runner.py` (`large_precheck`), `agents.py` (signed raw arm), `deploy/Caddyfile` (six blocks). 184 tests pass.
 
 ### Change to the `geo-l` markdown (2026-11-04, after the first dry run)
 

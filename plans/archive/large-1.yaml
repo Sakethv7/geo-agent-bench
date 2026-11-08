@@ -1,3 +1,5 @@
+# ARCHIVED UNEXECUTED PLAN. Superseded on 2026-11-08 by ADR-030's staged, lower-cost design.
+# Keep for provenance. Do not execute this file.
 # Main run on the large site (ADR-028): 8 tasks, 5 repeats, three variants, Claude with Anthropic's fetch tool. 120 runs.
 plan_id: large-1
 domain: wanderingcodersv.dev
